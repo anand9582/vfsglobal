@@ -123,7 +123,7 @@ function VfsTrackPage() {
   };
 
   const getMonthName = (monthIndex) => {
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
     return months[monthIndex];
   };
 
@@ -141,6 +141,13 @@ function VfsTrackPage() {
     setDob(formatDate(newDate));
     setShowDatePicker(false);
   };
+
+  const navigateMonth = (direction) => {
+    const newDate = new Date(selectedDate);
+    newDate.setMonth(selectedDate.getMonth() + direction);
+    setSelectedDate(newDate);
+  };
+
 
   
 
@@ -162,6 +169,7 @@ function VfsTrackPage() {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [showDatePicker]);
+
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -193,7 +201,7 @@ function VfsTrackPage() {
         let apiTrackingId = trackingId;
         let apiDate = '';
 
-        if (payload && Array.isArray(payload.data)) {
+        if (payload && Array.isArray(payload.data)) { ddd
           // Example: { status: true, data: ["UP", "20250918INCDTKT90001", "name", "2025-10-01"] }
           apiStatusRaw = String(payload.data[0] || '').toUpperCase();
           apiTrackingId = payload.data[1] || trackingId;
@@ -331,12 +339,22 @@ function VfsTrackPage() {
                   <input
                     type="text"
                     className="form-control"
-                    style={{ width: 209, height: 26, borderRadius: 6, border: touched.dob && !dob ? '1px solid #dc3545' : '1px solid #ccc', background: '#fff' }}
+                    style={{ 
+                      width: 209, 
+                      height: 26, 
+                      borderRadius: 6, 
+                      border: touched.dob && !dob ? '1px solid #dc3545' : '1px solid #ccc', 
+                      background: '#fff',
+                      fontSize: 12,
+                      fontFamily: 'Arial, sans-serif',
+                      color: '#333'
+                    }}
                     placeholder="YYYY-MM-DD"
                     value={dob}
                     onChange={(e) => setDob(e.target.value)}
                     onFocus={() => setShowDatePicker(true)}
                     onBlur={() => setTouched(prev => ({ ...prev, dob: true }))}
+                    readOnly
                   />
                   {showDatePicker && (
                     <div style={{
@@ -346,93 +364,72 @@ function VfsTrackPage() {
                       zIndex: 1000,
                       backgroundColor: '#fff',
                       border: '1px solid #d0d0d0',
-                      borderRadius: 4,
-                      padding: 0,
-                      minWidth: 200,
+                      borderRadius: 6,
+                      padding: 12,
+                      minWidth: 280,
                       fontFamily: 'Arial, sans-serif',
-                      boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                      fontSize: 12
                     }}>
                       {/* Calendar Header */}
                       <div style={{ 
                         display: 'flex', 
-                        justifyContent: 'center', 
+                        justifyContent: 'space-between', 
                         alignItems: 'center', 
-                        padding: '8px',
-                        backgroundColor: '#f5f5f5',
-                        borderBottom: '1px solid #e0e0e0',
-                        gap: 8
+                        marginBottom: 12,
+                        fontSize: 12,
+                        fontWeight: 'bold',
+                        color: '#333'
                       }}>
-                        <select
-                          value={selectedDate.getMonth()}
-                          onChange={(e) => {
-                            const newDate = new Date(selectedDate);
-                            newDate.setMonth(parseInt(e.target.value));
-                            setSelectedDate(newDate);
-                          }}
-                          style={{ 
-                            border: '1px solid #d0d0d0', 
-                            borderRadius: 3, 
-                            padding: '4px 8px',
-                            backgroundColor: '#f8f8f8',
+                        <button
+                          type="button"
+                          onClick={() => navigateMonth(-1)}
+                          style={{
+                            background: 'none',
+                            border: 'none',
                             fontSize: 12,
-                            color: '#333',
-                            fontWeight: 'bold',
-                            appearance: 'none',
-                            backgroundImage: `url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3e")`,
-                            backgroundRepeat: 'no-repeat',
-                            backgroundPosition: 'right 4px center',
-                            backgroundSize: '12px',
-                            paddingRight: '20px'
+                            cursor: 'pointer',
+                            padding: '4px 8px',
+                            borderRadius: 4,
+                            color: '#333'
                           }}
                         >
-                          {Array.from({ length: 12 }, (_, i) => (
-                            <option key={i} value={i}>{getMonthName(i)}</option>
-                          ))}
-                        </select>
-                        <select
-                          value={selectedDate.getFullYear()}
-                          onChange={(e) => {
-                            const newDate = new Date(selectedDate);
-                            newDate.setFullYear(parseInt(e.target.value));
-                            setSelectedDate(newDate);
-                          }}
-                          style={{ 
-                            border: '1px solid #d0d0d0', 
-                            borderRadius: 3, 
-                            padding: '4px 8px',
-                            backgroundColor: '#f8f8f8',
+                          ‹
+                        </button>
+                        <span style={{ fontSize: 12, fontWeight: 'bold', color: '#333' }}>
+                          {getMonthName(selectedDate.getMonth())} {selectedDate.getFullYear()}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => navigateMonth(1)}
+                          style={{
+                            background: 'none',
+                            border: 'none',
                             fontSize: 12,
-                            color: '#333',
-                            fontWeight: 'bold',
-                            appearance: 'none',
-                            backgroundImage: `url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3e")`,
-                            backgroundRepeat: 'no-repeat',
-                            backgroundPosition: 'right 4px center',
-                            backgroundSize: '12px',
-                            paddingRight: '20px'
+                            cursor: 'pointer',
+                            padding: '4px 8px',
+                            borderRadius: 4,
+                            color: '#333'
                           }}
                         >
-                          {Array.from({ length: 20 }, (_, i) => {
-                            const year = new Date().getFullYear() - 10 + i;
-                            return <option key={year} value={year}>{year}</option>;
-                          })}
-                        </select>
+                          ›
+                        </button>
                       </div>
 
                       {/* Days of Week */}
                       <div style={{ 
                         display: 'grid', 
                         gridTemplateColumns: 'repeat(7, 1fr)', 
-                        gap: 0, 
-                        borderBottom: '1px solid #e0e0e0',
-                        padding: '6px 0'
+                        gap: 2, 
+                        marginBottom: 8
                       }}>
                         {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(day => (
                           <div key={day} style={{ 
                             textAlign: 'center', 
-                            fontSize: 11, 
+                            fontSize: 12, 
                             fontWeight: 'bold', 
-                            color: '#333'
+                            color: '#666',
+                            padding: '4px 0'
                           }}>
                             {day}
                           </div>
@@ -443,40 +440,37 @@ function VfsTrackPage() {
                       <div style={{ 
                         display: 'grid', 
                         gridTemplateColumns: 'repeat(7, 1fr)', 
-                        gap: 0,
-                        padding: '4px'
+                        gap: 2
                       }}>
                         {Array.from({ length: getFirstDayOfMonth(selectedDate.getFullYear(), selectedDate.getMonth()) }, (_, i) => (
                           <div key={`empty-${i}`} style={{ 
-                            height: 28, 
-                            width: 28, 
-                            border: '1px solid #e0e0e0',
-                            backgroundColor: '#f8f8f8',
-                            margin: '1px'
+                            height: 32, 
+                            width: 32
                           }}></div>
                         ))}
                         {Array.from({ length: getDaysInMonth(selectedDate.getFullYear(), selectedDate.getMonth()) }, (_, i) => {
                           const day = i + 1;
                           const isSelected = day === selectedDate.getDate();
+                          const isToday = new Date().toDateString() === new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day).toDateString();
                           return (
                             <button
                               key={day}
                               type="button"
                               onClick={() => handleDateSelect(day)}
                               style={{
-                                height: 28,
-                                width: 28,
+                                height: 32,
+                                width: 32,
                                 border: '1px solid #e0e0e0',
-                                background: isSelected ? '#ffffff' : '#f8f8f8',
+                                background: isSelected ? '#007bff' : isToday ? '#f8f9fa' : '#fff',
                                 cursor: 'pointer',
-                                borderRadius: 0,
-                                fontSize: 11,
-                                color: '#333',
+                                borderRadius: 4,
+                                fontSize: 12,
+                                color: isSelected ? '#fff' : '#333',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                margin: '1px',
-                                fontWeight: 'normal'
+                                fontWeight: 'normal',
+                                fontFamily: 'Arial, sans-serif'
                               }}
                             >
                               {day}
