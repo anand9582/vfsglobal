@@ -74,14 +74,14 @@ function AdminPage() {
     const month = String(dateObj.getMonth() + 1).padStart(2, '0');
     const day = String(dateObj.getDate()).padStart(2, '0');
     
-    // Generate 5 random characters
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    let random = '';
+    // Generate 5 random digits for the sequence number
+    let sequenceNumber = '';
     for (let i = 0; i < 5; i++) {
-      random += chars[Math.floor(Math.random() * chars.length)];
+      sequenceNumber += Math.floor(Math.random() * 10);
     }
     
-    return `${year}${month}${day}${random}`;
+    // Format: YYYYMMDDINCDTKTXXXXX (19 characters total)
+    return `${year}${month}${day}INCDTKT${sequenceNumber}`;
   };
 
   const handleAdd = async (e) => {

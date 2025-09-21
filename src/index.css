@@ -37,6 +37,45 @@ ease-in-out .15s;
 .form-control.height{
     height:40px;
 }
+
+.tracking-input {
+    background: #fff;
+    height: 26px;
+    font-size: 14px!important;
+    width: 209px; /* default desktop width */
+    border: 1px solid #ccc;
+  }
+  .date-brith{
+    font-weight: 700;;
+     width: 210px;
+  }
+  .text-shown{
+    width: 270px;
+  }
+  .desktop-br {
+    display: inline;
+  }
+  @media (max-width: 768px) {
+    .tracking-input {
+      width: 100%; /* full width on mobile */
+    }
+    .btn-submit{
+        width: 100%;
+        margin-bottom: 10px;
+    }
+    .text-shown{
+        width: 100%;
+      }
+    .desktop-br {
+        display: none;
+      }
+      .logo{
+        width: 129px;
+      }
+      .logo-container{
+        width: 200px;
+      }
+  }
 @media (min-width: 1200px) {
     .container, .container-lg, .container-md, .container-sm, .container-xl {
         max-width: 986px;

@@ -268,3 +268,4 @@ Error: CORS policy
 ---
 
 **Note**: यह setup pure React implementation है, कोई PHP backend की जरूरत नहीं है!
+

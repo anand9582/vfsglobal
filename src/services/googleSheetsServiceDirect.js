@@ -276,3 +276,4 @@ class DirectGoogleSheetsService {
 const directGoogleSheetsService = new DirectGoogleSheetsService();
 
 export default directGoogleSheetsService;
+

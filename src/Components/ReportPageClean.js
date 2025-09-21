@@ -326,3 +326,4 @@ const ReportPageClean = () => {
 };
 
 export default ReportPageClean;
+

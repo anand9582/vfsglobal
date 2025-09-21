@@ -22,6 +22,47 @@ function VfsTrackPage() {
     return out;
   };
 
+  // Function to format tracking ID as YYYYMMDDINCDTKTXXXXX
+  const formatTrackingId = (value) => {
+    // Remove all non-alphanumeric characters
+    const cleaned = value.replace(/[^A-Za-z0-9]/g, '');
+    
+    // If empty, return empty
+    if (!cleaned) return '';
+    
+    // If it starts with INCDTKT, keep it as is
+    if (cleaned.startsWith('INCDTKT')) {
+      return cleaned.substring(0, 19); // Limit to 19 characters
+    }
+    
+    // If it's all digits and length is 8 or more, format as YYYYMMDDINCDTKTXXXXX
+    if (/^\d+$/.test(cleaned) && cleaned.length >= 8) {
+      const datePart = cleaned.substring(0, 8);
+      const remaining = cleaned.substring(8);
+      return datePart + 'INCDTKT' + remaining.substring(0, 5);
+    }
+    
+    // If it contains INCDTKT in the middle, format it properly
+    if (cleaned.includes('INCDTKT')) {
+      const parts = cleaned.split('INCDTKT');
+      if (parts.length === 2) {
+        const before = parts[0].substring(0, 8);
+        const after = parts[1].substring(0, 5);
+        return before + 'INCDTKT' + after;
+      }
+    }
+    
+    // For other cases, just return cleaned value limited to 19 characters
+    return cleaned.substring(0, 19);
+  };
+
+  // Function to handle tracking ID input change
+  const handleTrackingIdChange = (e) => {
+    const value = e.target.value.toUpperCase();
+    const formatted = formatTrackingId(value);
+    setTrackingId(formatted);
+  };
+
   const drawCaptcha = (text) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -332,13 +373,13 @@ function VfsTrackPage() {
 
   return (
     <div style={{ minHeight: '100vh'}}>
-      <div style={{ backgroundColor: '#0b355a', color: '#fff' }}>
+      <div className='d-flex justify-content-between d-lg-inline'>
+
+      
+      <div className=' logo-container ' style={{ backgroundColor: '#0b355a', color: '#fff' }}>
         <div className="container py-3 d-flex align-items-center justify-content-between">
           <div className="d-flex align-items-center">
-            <img className='w-5 h-4 me-3' src={`${process.env.PUBLIC_URL}/vfs-logo2.png`} alt="logo"  />
-            <h1 className="mb-0 text-white fw-bold" style={{ fontSize: '1.8rem', letterSpacing: '2px' }}>
-              VFS GLOBAL
-            </h1>
+            <img className='w-5 h-4 logo' src={`${process.env.PUBLIC_URL}/vfs-logo2.png`} alt="logo"  />
           </div>
            <div className="d-none d-md-block" style={{ fontFamily: '"Helvetica Neue", Helvetica, Arial, sans-serif', fontSize: '10pt' }}>
              <span>Apply for Visa to Canada </span>
@@ -349,6 +390,10 @@ function VfsTrackPage() {
           </div>
         </div>
       </div>
+      <span className='pr-3 mt-2 d-md-none' role="img" aria-label="canada">
+                <img src={`${process.env.PUBLIC_URL}/Canada.png`} alt="canada" style={{ width: 24, height: 34, objectFit: 'contain' }} />
+       </span>
+       </div>
 
       <div className="container border" >
         <div className="row">
@@ -378,14 +423,14 @@ function VfsTrackPage() {
             </div>
 
             <form onSubmit={handleSubmit}>
-              <div className="mb-2 d-flex align-items-center" style={{ marginTop: 6 }}>
-                <label className="mb-0" style={{ fontWeight: 700, width: 210 }}>
+              <div className="mb-2 d-md-flex align-items-center" style={{ marginTop: 6 }}>
+                <label className="mb-2 mb-lg-0" style={{ fontWeight: 700, width: 210 }}>
                   Tracking ID No<span className="text-danger">*</span>
                 </label>
                 <input
                   type="text"
-                  className="form-control"
-                  style={{ width: 209, height: 26,  background: '#fff', border: touched.trackingId && !trackingId ? '1px solid #dc3545' : undefined }}
+                  className="form-control tracking-input"
+                  style={{  background: '#fff', border: touched.trackingId && !trackingId ? '1px solid #dc3545' : undefined }}
                   placeholder="Tracking ID No"
                   value={trackingId}
                   onChange={(e) => setTrackingId(e.target.value)}
@@ -396,17 +441,15 @@ function VfsTrackPage() {
                 <div className="mb-2" style={{ color: '#dc3545', fontWeight: 700, marginLeft: 210 }}>Required</div>
               )}
 
-              <div className="mb-3 d-flex align-items-center" style={{ marginTop: 6, position: 'relative' }}>
-                <label className="mb-0" style={{ fontWeight: 700, width: 210 }}>
-                  Date of Birth (YYYY-<br/>MM-DD)<span className="text-danger">*</span>
+              <div className="mb-3 d-md-flex  align-items-center" style={{ marginTop: 6, position: 'relative' }}>
+                <label className="mb-2 mb-lg-0 date-brith">
+                  Date of Birth (YYYY-<span className="desktop-br"><br /></span>MM-DD)<span className="text-danger">*</span>
                 </label>
                 <div className="date-picker-container" style={{ position: 'relative' }}>
                   <input
                     type="text"
-                    className="form-control"
+                    className="form-control tracking-input"
                     style={{ 
-                      width: 209, 
-                      height: 26, 
                       borderRadius: 6, 
                       border: touched.dob && !dob ? '1px solid #dc3545' : '1px solid #ccc', 
                       background: '#fff',
@@ -419,7 +462,6 @@ function VfsTrackPage() {
                     onChange={(e) => setDob(e.target.value)}
                     onFocus={() => setShowDatePicker(true)}
                     onBlur={() => setTouched(prev => ({ ...prev, dob: true }))}
-                    readOnly
                   />
                   {showDatePicker && (
                     <div style={{
@@ -553,12 +595,12 @@ function VfsTrackPage() {
 
               <div className="col-lg-6 col-md-12 col-12 p-0" style={{ marginTop: 8 }}>
                 <div className="row g-3 align-items-center" style={{ border: '1px solid #d7dee8', borderRadius: 6, padding: 10, margin: 0 }}>
-                  <div className="col-lg-4 col-md-6 col-12 m-0 p-0">
+                  <div className="col-lg-4 col-md-6 col-5 m-0 p-0">
                     <div className="position-relative d-flex align-items-center" style={{ background: '#fff' }}>
                       <canvas ref={canvasRef} style={{ width: 300, height: 75, display: 'block', maxWidth: '100%', border: 'none' }} />
                     </div>
                   </div>
-                  <div className="col-lg-8 col-md--6 col-12">
+                  <div className="col-lg-8 col-md--6 col-7">
                     <div className="d-flex align-items-center mb-1" style={{ gap: 8}}>
                       <div
                         role="button"
@@ -572,8 +614,8 @@ function VfsTrackPage() {
                     </div>
                     <input
                       type="text"
-                      className="form-control"
-                      style={{ width: 270, border: touched.captcha && !captchaText ? '1px solid #dc3545' : '1px solid #cfd6e4', height: 36, borderRadius: 6, background: '#fff' }}
+                      className="form-control text-shown"
+                      style={{ border: touched.captcha && !captchaText ? '1px solid #dc3545' : '1px solid #cfd6e4', height: 36, borderRadius: 6, background: '#fff' }}
                       value={captchaText}
                       onChange={(e) => setCaptchaText(e.target.value)}
                       onBlur={() => setTouched(prev => ({ ...prev, captcha: true }))}
@@ -585,9 +627,9 @@ function VfsTrackPage() {
 
          <div className="row">
           <div className="col-12 col-lg-6">
-              <div className="d-flex gap-2 justify-content-end">
-                <button type="submit" className="btn btn-primary mr-2" style={{ backgroundColor: '#0b355a', borderColor: '#0b355a', padding: '4px 14px', fontSize: 13 }}>SUBMIT</button>
-                <button type="reset" className="btn btn-outline-secondary" style={{ padding: '4px 14px', fontSize: 13 }} onClick={() => { setTrackingId(''); setDob(''); setCaptchaText(''); setResultMsg(''); setTouched({ trackingId: false, dob: false, captcha: false }); refreshCaptcha(); }}>RESET</button>
+              <div className="d-md-flex gap-2 justify-content-end">
+                <button type="submit" className="btn btn-primary mr-2 btn-submit" style={{ backgroundColor: '#0b355a', borderColor: '#0b355a', padding: '4px 14px', fontSize: 13 }}>SUBMIT</button>
+                <button type="reset" className="btn btn-outline-secondary btn-submit" style={{ padding: '4px 14px', fontSize: 13 }} onClick={() => { setTrackingId(''); setDob(''); setCaptchaText(''); setResultMsg(''); setTouched({ trackingId: false, dob: false, captcha: false }); refreshCaptcha(); }}>RESET</button>
               </div>
               </div>
               </div>

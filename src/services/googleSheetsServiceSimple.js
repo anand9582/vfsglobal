@@ -202,3 +202,4 @@ class SimpleGoogleSheetsService {
 const simpleGoogleSheetsService = new SimpleGoogleSheetsService();
 
 export default simpleGoogleSheetsService;
+

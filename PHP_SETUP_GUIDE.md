@@ -132,3 +132,4 @@ If you face any issues, check:
 2. PHP error logs
 3. Browser console for JavaScript errors
 4. Network tab for API call failures
+

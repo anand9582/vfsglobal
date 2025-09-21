@@ -145,3 +145,4 @@ class LocalStorageService {
 const localStorageService = new LocalStorageService();
 
 export default localStorageService;
+
