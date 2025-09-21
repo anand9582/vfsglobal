@@ -201,7 +201,7 @@ function VfsTrackPage() {
         let apiTrackingId = trackingId;
         let apiDate = '';
 
-        if (payload && Array.isArray(payload.data)) { ddd
+        if (payload && Array.isArray(payload.data)) {
           // Example: { status: true, data: ["UP", "20250918INCDTKT90001", "name", "2025-10-01"] }
           apiStatusRaw = String(payload.data[0] || '').toUpperCase();
           apiTrackingId = payload.data[1] || trackingId;
