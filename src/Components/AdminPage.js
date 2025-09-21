@@ -1,33 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Swal from 'sweetalert2';
-import { FaTrash } from 'react-icons/fa';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
+import { collection, addDoc, getDocs, query, orderBy } from 'firebase/firestore';
+import { db } from '../firebase/firebaseConfig';
 
-// Add Roboto font import
-const robotoStyle = {
-  fontFamily: "'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif"
-};
-
-function getStorageKey() {
-  return 'vfs_applications';
-}
-
-function readAllApplications() {
-  try {
-    const raw = localStorage.getItem(getStorageKey());
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed;
-  } catch {
-    return [];
-  }
-}
-
-function writeAllApplications(list) {
-  localStorage.setItem(getStorageKey(), JSON.stringify(list));
-}
+// Roboto font style is now used inline throughout the component
 
 function AdminPage() {
   const [pinInput, setPinInput] = useState('');
@@ -35,78 +13,75 @@ function AdminPage() {
 
   const [name, setName] = useState('');
   const [passport, setPassport] = useState('');
-  const [trackingId, setTrackingId] = useState('');
   const [selectedDate, setSelectedDate] = useState(null);
   const [applicationDate, setApplicationDate] = useState(null);
   const [status, setStatus] = useState('Under Process');
 
-  const [rows, setRows] = useState(() => readAllApplications());
+  const [rows, setRows] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const recordsPerPage = 10;
   const [submitAttempted, setSubmitAttempted] = useState(false);
-  const controlHeight = 40; // unify input and addon heights
-  const [apiHttpCode, setApiHttpCode] = useState(null);
-  const [apiReturnedStatus, setApiReturnedStatus] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [apiData, setApiData] = useState([]);
-  const [useApiData, setUseApiData] = useState(false);
+  const [syncStatus, setSyncStatus] = useState('');
+  const controlHeight = 40;
 
+  // Load data from Firebase on component mount
   useEffect(() => {
-    writeAllApplications(rows);
-  }, [rows]);
-
-  // Load API data automatically when component mounts
-  useEffect(() => {
-    const loadInitialData = async () => {
-      setLoading(true);
-      try {
-        const response = await fetch('http://192.168.11.107:8081/user/getAll', {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          }
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          setApiHttpCode(response.status);
-          
-          // Convert API data to our format
-          const apiRecords = Array.isArray(data) ? data : (data.data || []);
-          const convertedRecords = apiRecords.map((record, index) => ({
-            userId: record.userId || null,
-            name: record.name || '',
-            passport: record.passportNo || '',
-            trackingId: record.trackingId || `API-${index + 1}`,
-            dob: record.dob || '',
-            status: record.status === 'UP' ? 'Under Process' : (record.status === 'DP' ? 'Dispatch' : 'Under Process'),
-            createdAt: record.createdAt || new Date().toISOString(),
-            updatedAt: record.updatedAt || new Date().toISOString()
-          }));
-          
-          setApiData(convertedRecords);
-          setUseApiData(true);
-        } else {
-          console.log('API not available, using local data');
-        }
-      } catch (error) {
-        console.log('API not available, using local data');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadInitialData();
+    loadDataFromFirebase();
   }, []);
+
+  const loadDataFromFirebase = async () => {
+    try {
+      const q = query(collection(db, 'submissions'), orderBy('createdAt', 'desc'));
+      const querySnapshot = await getDocs(q);
+      
+      const applications = [];
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        applications.push({
+          id: doc.id,
+          name: data.name || '',
+          passport: data.passport || '',
+          trackingId: data.trackingId || '',
+          dob: data.dob || '',
+          applicationDate: data.applicationDate || '',
+          status: data.status || '',
+          created: data.createdAt || '',
+          actions: 'View',
+          createdTimestamp: new Date(data.createdAt || new Date()).getTime()
+        });
+      });
+      
+      setRows(applications);
+    } catch (error) {
+      console.error('Error loading data from Firebase:', error);
+      setSyncStatus('Error loading data from Firebase');
+    }
+  };
 
   const handleUnlock = (e) => {
     e.preventDefault();
     if (pinInput === '7788') {
       setUnlocked(true);
     } else {
-      alert('Wrong PIN');
+      alert('Invalid PIN');
     }
+  };
+
+  const generateTrackingId = (date) => {
+    const dateObj = new Date(date);
+    const year = dateObj.getFullYear();
+    const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const day = String(dateObj.getDate()).padStart(2, '0');
+    
+    // Generate 5 random characters
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let random = '';
+    for (let i = 0; i < 5; i++) {
+      random += chars[Math.floor(Math.random() * chars.length)];
+    }
+    
+    return `${year}${month}${day}${random}`;
   };
 
   const handleAdd = async (e) => {
@@ -117,245 +92,242 @@ function AdminPage() {
     const dobString = selectedDate ? selectedDate.toISOString().split('T')[0] : '';
     const applicationDateString = applicationDate ? applicationDate.toISOString().split('T')[0] : '';
 
+    // Generate tracking ID based on application date
+    const trackingDate = applicationDateString || new Date().toISOString().split('T')[0];
+    const finalTrackingId = generateTrackingId(trackingDate);
+
     try {
-      // Convert status to API format
-      const apiStatus = status === 'Under Process' ? 'UP' : 'DP';
+      // Create application object with proper date handling
+      const application = {
+        name: name,
+        email: '', // Add email field if needed
+        passport: passport,
+        trackingId: finalTrackingId,
+        dob: dobString,
+        applicationDate: applicationDateString,
+        status: status,
+        createdAt: new Date().toISOString(),
+        // Add year for easy filtering and long-term storage
+        year: new Date().getFullYear(),
+        // Add expiry date (1 year from creation)
+        expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+        // Add last accessed timestamp
+        lastAccessed: new Date().toISOString(),
+        // Add access count
+        accessCount: 0
+      };
+
+      // Add to Firebase
+      try {
+        console.log('Adding application to Firebase:', application);
+        await addDoc(collection(db, 'submissions'), application);
+        console.log('Successfully added to Firebase:', finalTrackingId);
+        setSyncStatus(`Application added successfully! Tracking ID: ${finalTrackingId}`);
+        
+        // Reload data from Firebase
+        await loadDataFromFirebase();
+      } catch (error) {
+        console.error('Failed to add application to Firebase:', error);
+        setSyncStatus('Failed to add application. Please try again.');
+      }
       
-      // API call
-      const response = await fetch('http://192.168.11.107:8081/user/create', {
-        method: 'POST',
-         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: name,
-          passportNo: passport,
-          dob: dobString,
-          expectedDate: applicationDateString,
-          status: apiStatus
-        })
+      // Clear form
+      setName('');
+      setPassport('');
+      setSelectedDate(null);
+      setApplicationDate(null);
+      setStatus('Under Process');
+      setCurrentPage(1);
+      setSubmitAttempted(false);
+
+      // Show success message
+      Swal.fire({
+        title: 'Success!',
+        html: `
+          <div style="font-family: 'Roboto', sans-serif;">
+            <p style="color: #28a745; font-size: 18px; margin-bottom: 15px;">
+              <i class="fas fa-check-circle" style="margin-right: 8px;"></i>
+              Application created successfully!
+            </p>
+            <p style="margin: 0; font-weight: bold; color: #333;">Tracking ID:</p>
+            <p style="margin: 5px 0 0 0; font-family: monospace; font-size: 16px; color: #007bff;">${finalTrackingId}</p>
+            <p style="margin: 10px 0 0 0; font-size: 14px; color: #666;">Status: ${status}</p>
+            <p style="margin: 10px 0 0 0; font-size: 12px; color: #28a745;">✅ Synced to Firebase</p>
+          </div>
+        `,
+        icon: 'success',
+        confirmButtonText: 'OK',
+        confirmButtonColor: '#007bff',
+        timer: 5000,
+        timerProgressBar: true,
+        showConfirmButton: true,
+        allowOutsideClick: true
       });
 
-      if (response.ok) {
-        let returnedStatus = '';
-        let returnedTrackingId = '';
-        try {
-          const data = await response.json();
-          returnedStatus = (data && (data.status || (data.data && data.data.status))) || '';
-          returnedTrackingId = (data && (data.trackingId || (data.data && data.data.trackingId))) || '';
-        } catch (_) {
-          // ignore JSON parse errors if no body
-        }
-
-        setApiHttpCode(response.status);
-        setApiReturnedStatus(returnedStatus);
-
-        // Use returned status if provided by API (UP/DP)
-        let statusToStore = status;
-        if (returnedStatus === 'UP') statusToStore = 'Under Process';
-        if (returnedStatus === 'DP') statusToStore = 'Dispatch';
-        
-        // Use returned tracking ID if provided by API
-        const finalTrackingId = returnedTrackingId || trackingId;
-        
-        // API success - also save to localStorage for local display
-        const exists = rows.some(r => r.trackingId === finalTrackingId);
-        const now = new Date().toISOString();
-        const record = { name, passport, trackingId: finalTrackingId, dob: dobString, applicationDate: applicationDateString, status: statusToStore, createdAt: now };
-        setRows(prev => exists ? prev.map(r => (r.trackingId === finalTrackingId ? record : r)) : [record, ...prev]);
-        
-        // Also add to API data if we're currently viewing API data
-        if (useApiData) {
-          setApiData(prev => [record, ...prev]);
-        }
-        
-        // Clear form
-        setName('');
-        setPassport('');
-        setTrackingId('');
-        setSelectedDate(null);
-        setApplicationDate(null);
-        setStatus('Under Process');
-        setCurrentPage(1);
-        setSubmitAttempted(false);
-        
-        // Show SweetAlert success message
-        Swal.fire({
-          title: 'Success!',
-          html: `
-            <div style="font-family: 'Roboto', sans-serif;">
-              <p style="color: #28a745; font-size: 18px; margin-bottom: 15px;">
-                <i class="fas fa-check-circle" style="margin-right: 8px;"></i>
-                User created successfully!
-              </p>
-                <p style="margin: 0; font-weight: bold; color: #333;">Tracking ID:</p>
-                <p style="margin: 5px 0 0 0; font-family: monospace; font-size: 16px; color: #007bff;">${finalTrackingId}</p>
-                <p style="margin: 10px 0 0 0; font-size: 14px; color: #666;">Status: ${statusToStore}</p>
-            </div>
-          `,
-          icon: 'success',
-          confirmButtonText: 'OK',
-          confirmButtonColor: '#007bff',
-          timer: 5000,
-          timerProgressBar: true,
-          showConfirmButton: true,
-          allowOutsideClick: true,
-          customClass: {
-            popup: 'swal2-popup-custom',
-            title: 'swal2-title-custom',
-            content: 'swal2-content-custom'
-          }
-        });
-      } else {
-        setApiHttpCode(response.status);
-        try {
-          const errorData = await response.json();
-          setApiReturnedStatus(errorData && (errorData.status || errorData.message) ? (errorData.status || errorData.message) : '');
-          alert(`Error: ${errorData.message || 'Failed to create user'}`);
-        } catch (_) {
-          setApiReturnedStatus('');
-          alert('Failed to create user');
-        }
-      }
     } catch (error) {
-      console.error('API Error:', error);
-      alert('Network error. Please check your connection and try again.');
+      console.error('Error creating application:', error);
+      alert('Error creating application. Please try again.');
     }
   };
 
   const filtered = useMemo(() => {
-    const dataToSearch = useApiData ? apiData : rows;
-    if (!searchTerm.trim()) return dataToSearch;
+    if (!searchTerm.trim()) return rows;
     const term = searchTerm.toLowerCase();
-    return dataToSearch.filter(r => 
+    return rows.filter(r => 
       r.name.toLowerCase().includes(term) ||
-      r.passport.toLowerCase().includes(term) ||
+      (r.passport && r.passport.toLowerCase().includes(term)) ||
       r.trackingId.toLowerCase().includes(term)
     );
-  }, [rows, apiData, searchTerm, useApiData]);
+  }, [rows, searchTerm]);
 
   const totalPages = Math.ceil(filtered.length / recordsPerPage);
   const startIndex = (currentPage - 1) * recordsPerPage;
   const endIndex = startIndex + recordsPerPage;
   const currentRecords = filtered.slice(startIndex, endIndex);
 
-  const handlePageChange = (page) => {
-    setCurrentPage(page);
-  };
-
-  const handleSearchChange = (e) => {
-    setSearchTerm(e.target.value);
-    setCurrentPage(1); // Reset to first page when searching
-  };
-
-  const loadFromAPI = async () => {
-    setLoading(true);
-    try {
-      const response = await fetch('http://192.168.11.107:8081/user/getAll', {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setApiHttpCode(response.status);
-        
-        // Convert API data to our format
-        const apiRecords = Array.isArray(data) ? data : (data.data || []);
-        const convertedRecords = apiRecords.map((record, index) => ({
-          userId: record.userId || null,
-          name: record.name || '',
-          passport: record.passportNo || '',
-          trackingId: record.trackingId || `API-${index + 1}`,
-          dob: record.dob || '',
-          status: record.status === 'UP' ? 'Under Process' : (record.status === 'DP' ? 'Dispatch' : 'Under Process'),
-          createdAt: record.createdAt || new Date().toISOString(),
-          updatedAt: record.updatedAt || new Date().toISOString()
-        }));
-        
-        setApiData(convertedRecords);
-        setUseApiData(true);
-        setCurrentPage(1);
-        alert(`Loaded ${convertedRecords.length} records from API for search/filter`);
-      } else {
-        setApiHttpCode(response.status);
-        alert(`Failed to load data: HTTP ${response.status}`);
-      }
-    } catch (error) {
-      console.error('API Error:', error);
-      alert('Network error. Please check your connection and try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDelete = async (record) => {
-    if (useApiData && record.userId) {
-      // Delete from API
-      try {
-        const response = await fetch(`http://10.46.167.139:8081/user/delete/${record.userId}`, {
-          method: 'DELETE',
-          headers: {
-            'Content-Type': 'application/json',
-          }
-        });
-
-        if (response.ok) {
-          // Remove from API data
-          setApiData(prev => prev.filter(r => r.userId !== record.userId));
-          alert('Record deleted successfully from API');
-        } else {
-          alert(`Failed to delete: HTTP ${response.status}`);
-        }
-      } catch (error) {
-        console.error('Delete API Error:', error);
-        alert('Network error while deleting');
-      }
-    } else {
-      // Delete from local storage
-      setRows(prev => prev.filter(x => x.trackingId !== record.trackingId));
-      alert('Record deleted from local storage');
-    }
-  };
-
   if (!unlocked) {
     return (
-      <div className="container-fluid" style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', ...robotoStyle }}>
-        <div className="row justify-content-center align-items-center" style={{ minHeight: '100vh' }}>
-          <div className="col-md-4 col-sm-8">
-            <div className="card shadow-lg border-0" style={{ borderRadius: '15px' }}>
-              <div className="card-header text-center border-0" style={{ background: 'linear-gradient(45deg, #667eea, #764ba2)', borderRadius: '15px 15px 0 0' }}>
-                <h4 className="text-white mb-0" style={robotoStyle}>
-                  <i className="fas fa-lock mr-2"></i>
-                  Admin Access
-                </h4>
-                <small className="text-white-50" style={robotoStyle}>Enter PIN to continue</small>
-              </div>
-              <div className="card-body p-4">
-                <form onSubmit={handleUnlock}>
-                  <div className="form-group">
-                    <label className="text-muted small" style={robotoStyle}>Security PIN</label>
-                    <div className="input-group">
-                      <div className="input-group-prepend">
-                        <span className="input-group-text bg-light border-0">
-                          <i className="fas fa-key text-primary"></i>
-                        </span>
+      <div className="min-vh-100 d-flex align-items-center" style={{
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        fontFamily: "'Roboto', sans-serif"
+      }}>
+        <div className="container">
+          <div className="row justify-content-center">
+            <div className="col-md-6 col-lg-4">
+              <div className="card border-0 shadow-lg" style={{
+                borderRadius: '20px',
+                backdropFilter: 'blur(10px)',
+                background: 'rgba(255, 255, 255, 0.95)',
+                boxShadow: '0 20px 40px rgba(0,0,0,0.1)'
+              }}>
+                <div className="card-body p-5">
+                  {/* Header Section */}
+                  <div className="text-center mb-4">
+                    <div className="mb-3">
+                      <div style={{
+                        width: '80px',
+                        height: '80px',
+                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                        borderRadius: '50%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        margin: '0 auto',
+                        boxShadow: '0 10px 20px rgba(102, 126, 234, 0.3)'
+                      }}>
+                        <i className="fas fa-shield-alt text-white" style={{ fontSize: '2rem' }}></i>
                       </div>
-                      <input 
-                        type="password" 
-                        className="form-control border-0 bg-light" 
-                        placeholder="Enter 4-digit PIN" 
-                        value={pinInput} 
-                        onChange={(e) => setPinInput(e.target.value)}
-                        style={{ height: '50px', ...robotoStyle }}
-                      />
+                    </div>
+                    <h2 className="fw-bold text-dark mb-2" style={{ fontSize: '1.4rem' }}>
+                      Admin Access
+                    </h2>
+                    <p className="text-muted mb-0" style={{ fontSize: '0.85rem' }}>
+                      Enter your secure PIN to continue
+                    </p>
+                  </div>
+
+                  {/* Form Section */}
+                  <form onSubmit={handleUnlock}>
+                    <div className="mb-4">
+                      <label className="form-label fw-semibold text-dark mb-2" style={{ fontSize: '0.8rem' }}>
+                        <i className="fas fa-key me-2 text-primary"></i>
+                        Security PIN
+                      </label>
+                      <div className="position-relative">
+                        <input
+                          type="password"
+                          className="form-control form-control-lg border-0"
+                          placeholder="Enter your 4-digit PIN"
+                          value={pinInput}
+                          onChange={(e) => setPinInput(e.target.value)}
+                          style={{
+                            borderRadius: '15px',
+                            background: '#f8f9fa',
+                            padding: '12px 18px',
+                            fontSize: '1rem',
+                            letterSpacing: '2px',
+                            textAlign: 'center',
+                            fontWeight: '600',
+                            border: '2px solid transparent',
+                            transition: 'all 0.3s ease'
+                          }}
+                          onFocus={(e) => {
+                            e.target.style.borderColor = '#667eea';
+                            e.target.style.background = '#fff';
+                            e.target.style.boxShadow = '0 0 0 0.2rem rgba(102, 126, 234, 0.25)';
+                          }}
+                          onBlur={(e) => {
+                            e.target.style.borderColor = 'transparent';
+                            e.target.style.background = '#f8f9fa';
+                            e.target.style.boxShadow = 'none';
+                          }}
+                          maxLength="4"
+                          required
+                        />
+                        <div className="position-absolute top-50 end-0 translate-middle-y me-3">
+                          <i className="fas fa-lock text-muted"></i>
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="btn w-100 text-white fw-bold py-3"
+                      style={{
+                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                        borderRadius: '15px',
+                        fontSize: '1rem',
+                        letterSpacing: '0.5px',
+                        border: 'none',
+                        boxShadow: '0 8px 20px rgba(102, 126, 234, 0.3)',
+                        transition: 'all 0.3s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.target.style.transform = 'translateY(-2px)';
+                        e.target.style.boxShadow = '0 12px 25px rgba(102, 126, 234, 0.4)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.transform = 'translateY(0)';
+                        e.target.style.boxShadow = '0 8px 20px rgba(102, 126, 234, 0.3)';
+                      }}
+                    >
+                      <i className="fas fa-unlock me-2"></i>
+                      Unlock Dashboard
+                    </button>
+                  </form>
+
+                  {/* Footer */}
+                  <div className="text-center mt-4">
+                    <small className="text-muted" style={{ fontSize: '0.75rem' }}>
+                      <i className="fas fa-shield-alt me-1"></i>
+                      Secure Admin Portal
+                    </small>
+                  </div>
+                </div>
+              </div>
+
+              {/* Additional Info Card */}
+              <div className="card border-0 mt-4" style={{
+                background: 'rgba(255, 255, 255, 0.1)',
+                backdropFilter: 'blur(5px)',
+                borderRadius: '15px'
+              }}>
+                <div className="card-body p-3 text-center">
+                  <div className="row text-white">
+                    <div className="col-4">
+                      <i className="fas fa-users fa-2x mb-2 d-block"></i>
+                      <small className="fw-semibold">Manage Users</small>
+                    </div>
+                    <div className="col-4">
+                      <i className="fas fa-chart-line fa-2x mb-2 d-block"></i>
+                      <small className="fw-semibold">View Reports</small>
+                    </div>
+                    <div className="col-4">
+                      <i className="fas fa-cog fa-2x mb-2 d-block"></i>
+                      <small className="fw-semibold">System Control</small>
                     </div>
                   </div>
-                  <button className="btn btn-primary btn-block" type="submit" style={{ height: '50px', borderRadius: '25px', ...robotoStyle }}>
-                    <i className="fas fa-unlock mr-2"></i>
-                    Unlock Dashboard
-                  </button>
-                </form>
+                </div>
               </div>
             </div>
           </div>
@@ -365,498 +337,642 @@ function AdminPage() {
   }
 
   return (
-    <div className="container py-4" style={{ background: '#e5e5e5', minHeight: '100vh',fontSize: '14px', ...robotoStyle }}>
-      {/* Header */}
-      <div className="row mb-4">
-        <div className="col-12">
-          <div className="card border-0 shadow-sm">
-            <div className="card-body">
-              <div className="d-flex align-items-center justify-content-between">
-                <div>
-                  <h2 className="mb-1 text-primary" style={robotoStyle}>
-                    <i className="fas fa-users-cog mr-2"></i>
-                    Admin Dashboard
-                  </h2>
-                  <p className="text-muted mb-0" style={robotoStyle}>Manage user applications and tracking</p>
-                  {(apiHttpCode || apiReturnedStatus) && (
-                    <div className="mt-2">
-                      <span className={`badge badge-${apiHttpCode === 200 ? 'success' : 'warning'} mr-2`}>
-                        HTTP {apiHttpCode || '-'}
-                      </span>
-                      {apiReturnedStatus && (
-                        <span className="badge badge-info">
-                          Status: {apiReturnedStatus}
-                        </span>
-                      )}
+    <div className="min-vh-100" style={{ 
+      background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
+      fontFamily: "'Roboto', sans-serif"
+    }}>
+      <div className="container py-4">
+        {/* Header */}
+        <div className="row mb-4">
+          <div className="col-12">
+            <div className="card border-0 shadow-lg" style={{
+              borderRadius: '20px',
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              color: 'white'
+            }}>
+              <div className="card-body p-4">
+                <div className="d-flex align-items-center justify-content-between">
+                  <div className="d-flex align-items-center">
+                    <div className="me-3" style={{
+                      width: '60px',
+                      height: '60px',
+                      background: 'rgba(255, 255, 255, 0.2)',
+                      borderRadius: '50%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}>
+                      <i className="fas fa-tachometer-alt fa-2x"></i>
                     </div>
-                  )}
+                    <div>
+                      <h1 className="mb-0 fw-bold text-white" style={{ fontSize: '1.8rem', letterSpacing: '2px' }}>
+                        VFS GLOBAL
+                      </h1>
+                      <h2 className="mb-1 fw-bold ml-3 text-white" style={{ fontSize: '1.2rem' }}>
+                        Admin Dashboard
+                      </h2>
+                      <p className="mb-0 opacity-75 ml-3" style={{ fontSize: '0.9rem' }}>
+                        <i className="fas fa-database me-2"></i>
+                        • Real-time Management
+                      </p>
+                    </div>
+                  </div>
+                  <button 
+                    className="btn btn-light btn-lg px-4 py-2 fw-bold"
+                    onClick={() => setUnlocked(false)}
+                    style={{
+                      borderRadius: '15px',
+                      boxShadow: '0 4px 15px rgba(0,0,0,0.1)',
+                      transition: 'all 0.3s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.transform = 'translateY(-2px)';
+                      e.target.style.boxShadow = '0 6px 20px rgba(0,0,0,0.15)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.transform = 'translateY(0)';
+                      e.target.style.boxShadow = '0 4px 15px rgba(0,0,0,0.1)';
+                    }}
+                  >
+                    <i className="fas fa-sign-out-alt me-2"></i>
+                    Lock Dashboard
+                  </button>
                 </div>
-                 <div className="d-flex align-items-center">
-                   {loading && (
-                     <div className="mr-3">
-                       <i className="fas fa-spinner fa-spin text-primary mr-1"></i>
-                       <span style={robotoStyle}>Loading API data...</span>
-                     </div>
-                   )}
-                   <button 
-                     className="btn btn-info mr-2" 
-                     onClick={loadFromAPI} 
-                     disabled={loading}
-                     style={robotoStyle}
-                   >
-                     <i className={`fas ${loading ? 'fa-spinner fa-spin' : 'fa-sync'} mr-1`}></i>
-                     {loading ? 'Loading...' : 'Refresh API Data'}
-                   </button>
-                   {useApiData && (
-                     <button 
-                       className="btn btn-warning mr-2" 
-                       onClick={() => setUseApiData(false)}
-                       style={robotoStyle}
-                     >
-                       <i className="fas fa-database mr-1"></i>
-                       Use Local Data
-                     </button>
-                   )}
-                   <span className="badge badge-success badge-pill mr-3 px-3 py-2" style={robotoStyle}>
-                     <i className="fas fa-check-circle mr-1"></i>
-                     Unlocked
-                   </span>
-                   <button className="btn btn-outline-danger" onClick={() => setUnlocked(false)} style={robotoStyle}>
-                     <i className="fas fa-lock mr-1"></i>
-                     Lock
-                   </button>
-                 </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
-
-      {/* Add/Update Form */}
-      <div className="row mb-4">
-        <div className="col-12">
-          <div className="card border-0 shadow-sm">
-            <div className="card-header bg-primary text-white border-0">
-              <h5 className="mb-0" style={robotoStyle}>
-                <i className="fas fa-plus-circle mr-2"></i>
-                Add New Application
-              </h5>
-            </div>
-            <div className="card-body p-4">
-              <form onSubmit={handleAdd}>
-                <div className="row">
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label font-weight-bold text-dark" style={robotoStyle}>
-                      <i className="fas fa-user text-primary mr-1"></i>
-                      Full Name
-                    </label>
-                    <div className="input-group">
-                      <div className="input-group-prepend">
-                        <span className="input-group-text bg-light border-0" style={{ height: controlHeight }}>
-                          <i className="fas fa-user text-primary"></i>
-                        </span>
-                      </div>
-                      <input 
-                        className={`form-control border-0 bg-light ${submitAttempted && !name ? 'is-invalid' : ''}`} 
-                        style={{ height: controlHeight, ...robotoStyle }} 
-                        value={name} 
-                        onChange={(e) => setName(e.target.value)} 
-                        placeholder="Enter full name" 
-                      />
-                    </div>
-                    {submitAttempted && !name && <div className="invalid-feedback d-block" style={robotoStyle}>Name is required</div>}
-                  </div>
-                  
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label font-weight-bold text-dark" style={robotoStyle}>
-                      <i className="fas fa-passport text-primary mr-1"></i>
-                      Passport Number
-                    </label>
-                    <div className="input-group">
-                      <div className="input-group-prepend">
-                        <span className="input-group-text bg-light border-0" style={{ height: controlHeight }}>
-                          <i className="fas fa-passport text-primary"></i>
-                        </span>
-                      </div>
-                      <input 
-                        className={`form-control border-0 bg-light ${submitAttempted && !passport ? 'is-invalid' : ''}`} 
-                        style={{ height: controlHeight, ...robotoStyle }} 
-                        value={passport} 
-                        onChange={(e) => setPassport(e.target.value.toUpperCase())} 
-                        placeholder="Enter passport number" 
-                      />
-                    </div>
-                    <small className="form-text text-muted" style={robotoStyle}>
-                      <i className="fas fa-info-circle mr-1"></i>
-                      Auto-uppercase applied
-                    </small>
-                    {submitAttempted && !passport && <div className="invalid-feedback d-block" style={robotoStyle}>Passport number is required</div>}
-                  </div>
-                  
-                   <div className="col-md-6 mb-3">
-                     <label className="form-label font-weight-bold text-dark" style={robotoStyle}>
-                       <i className="fas fa-calendar text-primary mr-1"></i>
-                       Date of Birth <span className="text-muted">(Optional)</span>
-                     </label>
-                     <div className="input-group">
-                       <div className="input-group-prepend">
-                         <span className="input-group-text bg-light border-0" style={{ height: controlHeight }}>
-                           <i className="fas fa-calendar text-primary"></i>
-                         </span>
-                       </div>
-                        <DatePicker
-                          selected={selectedDate}
-                          onChange={(date) => {
-                            setSelectedDate(date);
-                          }}
-                          dateFormat="yyyy-MM-dd"
-                          placeholderText="Select date (optional)"
-                          className={`form-control border-0 bg-light ${submitAttempted && !selectedDate ? 'is-invalid' : ''}`}
-                          style={{ 
-                            height: controlHeight, 
-                            width: '100%', 
-                            borderRadius: '6px',
-                            backgroundColor: '#f8f9fa',
-                            border: 'none',
-                            padding: '8px 12px',
-                            fontSize: '14px',
-                            color: '#495057',
-                            ...robotoStyle 
-                          }}
-                          isClearable
-                          showYearDropdown
-                          showMonthDropdown
-                          dropdownMode="select"
-                          maxDate={new Date()}
-                          yearDropdownItemNumber={100}
-                        />
-                     </div>
-                     <small className="form-text text-muted" style={robotoStyle}>
-                       <i className="fas fa-info-circle mr-1"></i>
-                       Optional field - can be left empty
-                     </small>
-                   </div>
-                  
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label font-weight-bold text-dark" style={robotoStyle}>
-                      <i className="fas fa-calendar-check text-primary mr-1"></i>
-                      Application Date <span className="text-muted">(Optional)</span>
-                    </label>
-                    <div className="input-group">
-                      <div className="input-group-prepend">
-                        <span className="input-group-text bg-light border-0" style={{ height: controlHeight }}>
-                          <i className="fas fa-calendar-check text-primary"></i>
-                        </span>
-                      </div>
-                      <DatePicker
-                        selected={applicationDate}
-                        onChange={(date) => {
-                          setApplicationDate(date);
-                        }}
-                        dateFormat="yyyy-MM-dd"
-                        placeholderText="Select application date (optional)"
-                        className={`form-control border-0 bg-light ${submitAttempted && !applicationDate ? 'is-invalid' : ''}`}
-                        style={{ 
-                          height: controlHeight, 
-                          width: '100%', 
-                          borderRadius: '6px',
-                          backgroundColor: '#f8f9fa',
-                          border: 'none',
-                          padding: '8px 12px',
-                          fontSize: '14px',
-                          color: '#495057',
-                          ...robotoStyle 
-                        }}
-                        isClearable
-                        showYearDropdown
-                        showMonthDropdown
-                        dropdownMode="select"
-                        maxDate={new Date()}
-                        yearDropdownItemNumber={100}
-                      />
-                    </div>
-                    <small className="form-text text-muted" style={robotoStyle}>
-                      <i className="fas fa-info-circle mr-1"></i>
-                      Optional field - can be left empty
-                    </small>
-                  </div>
-                  
-                  <div className="col-md-6 mb-3">
-                    <label className="form-label font-weight-bold text-dark" style={robotoStyle}>
-                      <i className="fas fa-tasks text-primary mr-1"></i>
-                      Status
-                    </label>
-                    <select 
-                      className="form-control border-0 bg-light" 
-                      style={{ height: controlHeight, ...robotoStyle }} 
-                      value={status} 
-                      onChange={(e) => setStatus(e.target.value)}
-                    >
-                      <option>Under Process</option>
-                      <option>Dispatch</option>
-                    </select>
-                  </div>
-                </div>
-                
-                <div className="d-flex justify-content-end mt-4">
-                  <button 
-                    type="button" 
-                    className="btn btn-light mr-3 px-4" 
-                    onClick={() => { setName(''); setPassport(''); setTrackingId(''); setSelectedDate(null); setApplicationDate(null); setStatus('Under Process'); setSubmitAttempted(false); }}
-                    style={{ height: '45px', ...robotoStyle }}
-                  >
-                    <i className="fas fa-undo mr-2"></i>
-                    Reset
-                  </button>
-                  <button 
-                    className="btn btn-primary px-4" 
-                    style={{ height: '45px', ...robotoStyle }}
-                  >
-                    <i className="fas fa-save mr-2"></i>
-                    Create Application
-                  </button>
-                </div>
-              </form>
+      
+        {/* Add/Update Form */}
+        <div className="card border-0 shadow-lg mb-4" style={{ borderRadius: '20px' }}>
+          <div className="card-header border-0 text-white" style={{
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            borderRadius: '20px 20px 0 0'
+          }}>
+            <div className="d-flex align-items-center">
+              <div className="me-3" style={{
+                width: '40px',
+                height: '40px',
+                background: 'rgba(255, 255, 255, 0.2)',
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}>
+                <i className="fas fa-plus-circle"></i>
+              </div>
+              <div>
+                <h5 className="mb-0 fw-bold ml-3 " style={{ fontSize: '1.1rem' }}>
+                  Add New Application
+                </h5>
+                <small className="opacity-75 ml-3 " style={{ fontSize: '0.8rem' }}>Create and track new user applications</small>
+              </div>
             </div>
           </div>
+          <div className="card-body p-4">
+            {syncStatus && (
+              <div className={`alert ${syncStatus.includes('Error') || syncStatus.includes('failed') ? 'alert-danger' : 'alert-success'} mb-4 border-0`} 
+                   style={{ borderRadius: '15px' }} role="alert">
+                <i className={`fas ${syncStatus.includes('Error') || syncStatus.includes('failed') ? 'fa-exclamation-triangle' : 'fa-check-circle'} me-2`}></i>
+                {syncStatus}
+              </div>
+            )}
+            <form onSubmit={handleAdd}>
+            <div className="row">
+              <div className="col-md-6 mb-3">
+                <label className="form-label font-weight-bold text-dark" style={{fontFamily: "'Roboto', sans-serif"}}>
+                  <i className="fas fa-user text-primary mr-1"></i>
+                  Full Name
+                </label>
+                <div className="input-group">
+                  <div className="input-group-prepend">
+                    <span className="input-group-text bg-light border-0" style={{ height: controlHeight }}>
+                      <i className="fas fa-user text-primary"></i>
+                    </span>
+                  </div>
+                  <input 
+                    type="text"
+                    className={`form-control border-0 bg-light ${submitAttempted && !name ? 'is-invalid' : ''}`} 
+                    style={{ height: controlHeight, fontFamily: "'Roboto', sans-serif" }} 
+                    value={name} 
+                    onChange={(e) => setName(e.target.value)} 
+                    placeholder="Enter full name" 
+                    required
+                  />
+                </div>
+                {submitAttempted && !name && <div className="invalid-feedback d-block" style={{fontFamily: "'Roboto', sans-serif"}}>Name is required</div>}
+              </div>
+              
+              <div className="col-md-6 mb-3">
+                <label className="form-label font-weight-bold text-dark" style={{fontFamily: "'Roboto', sans-serif"}}>
+                  <i className="fas fa-passport text-primary mr-1"></i>
+                  Passport Number
+                </label>
+                <div className="input-group">
+                  <div className="input-group-prepend">
+                    <span className="input-group-text bg-light border-0" style={{ height: controlHeight }}>
+                      <i className="fas fa-passport text-primary"></i>
+                    </span>
+                  </div>
+                  <input 
+                    type="text"
+                    className={`form-control border-0 bg-light ${submitAttempted && !passport ? 'is-invalid' : ''}`} 
+                    style={{ height: controlHeight, fontFamily: "'Roboto', sans-serif" }} 
+                    value={passport} 
+                    onChange={(e) => setPassport(e.target.value.toUpperCase())} 
+                    placeholder="Enter passport number" 
+                    required
+                  />
+                </div>
+                <small className="form-text text-muted" style={{fontFamily: "'Roboto', sans-serif"}}>
+                  <i className="fas fa-info-circle mr-1"></i>
+                  Auto-uppercase applied
+                </small>
+                {submitAttempted && !passport && <div className="invalid-feedback d-block" style={{fontFamily: "'Roboto', sans-serif"}}>Passport number is required</div>}
+              </div>
+              
+              <div className="col-md-6 mb-3">
+                <label className="form-label font-weight-bold text-dark" style={{fontFamily: "'Roboto', sans-serif"}}>
+                  <i className="fas fa-calendar text-primary mr-1"></i>
+                  Date of Birth <span className="text-muted">(Optional)</span>
+                </label>
+                <div className="input-group">
+                  <div className="input-group-prepend">
+                    <span className="input-group-text bg-light border-0" style={{ height: controlHeight }}>
+                      <i className="fas fa-calendar text-primary"></i>
+                    </span>
+                  </div>
+                  <DatePicker
+                    selected={selectedDate}
+                    onChange={(date) => setSelectedDate(date)}
+                    dateFormat="yyyy-MM-dd"
+                    placeholderText="Select date (optional)"
+                    className="form-control border-0 bg-light"
+                    style={{ 
+                      height: controlHeight, 
+                      width: '100%', 
+                      borderRadius: '6px',
+                      backgroundColor: '#f8f9fa',
+                      border: 'none',
+                      padding: '8px 12px',
+                      fontSize: '14px',
+                      color: '#495057',
+                      fontFamily: "'Roboto', sans-serif"
+                    }}
+                    isClearable
+                    showYearDropdown
+                    showMonthDropdown
+                    dropdownMode="select"
+                    maxDate={new Date()}
+                    yearDropdownItemNumber={100}
+                  />
+                </div>
+                <small className="form-text text-muted" style={{fontFamily: "'Roboto', sans-serif"}}>
+                  <i className="fas fa-info-circle mr-1"></i>
+                  Optional field - can be left empty
+                </small>
+              </div>
+              
+              <div className="col-md-6 mb-3">
+                <label className="form-label font-weight-bold text-dark" style={{fontFamily: "'Roboto', sans-serif"}}>
+                  <i className="fas fa-calendar-check text-primary mr-1"></i>
+                  Application Date <span className="text-muted">(Optional)</span>
+                </label>
+                <div className="input-group">
+                  <div className="input-group-prepend">
+                    <span className="input-group-text bg-light border-0" style={{ height: controlHeight }}>
+                      <i className="fas fa-calendar-check text-primary"></i>
+                    </span>
+                  </div>
+                  <DatePicker
+                    selected={applicationDate}
+                    onChange={(date) => setApplicationDate(date)}
+                    dateFormat="yyyy-MM-dd"
+                    placeholderText="Select application date (optional)"
+                    className="form-control border-0 bg-light"
+                    style={{ 
+                      height: controlHeight, 
+                      width: '100%', 
+                      borderRadius: '6px',
+                      backgroundColor: '#f8f9fa',
+                      border: 'none',
+                      padding: '8px 12px',
+                      fontSize: '14px',
+                      color: '#495057',
+                      fontFamily: "'Roboto', sans-serif"
+                    }}
+                    isClearable
+                    showYearDropdown
+                    showMonthDropdown
+                    dropdownMode="select"
+                    maxDate={new Date()}
+                    yearDropdownItemNumber={100}
+                  />
+                </div>
+                <small className="form-text text-muted" style={{fontFamily: "'Roboto', sans-serif"}}>
+                  <i className="fas fa-info-circle mr-1"></i>
+                  Optional field - can be left empty
+                </small>
+              </div>
+              
+              <div className="col-md-6 mb-3">
+                <label className="form-label font-weight-bold text-dark" style={{fontFamily: "'Roboto', sans-serif"}}>
+                  <i className="fas fa-tasks text-primary mr-1"></i>
+                  Status
+                </label>
+                <select 
+                  className="form-control border-0 bg-light" 
+                  style={{ height: controlHeight, fontFamily: "'Roboto', sans-serif" }} 
+                  value={status} 
+                  onChange={(e) => setStatus(e.target.value)}
+                >
+                  <option>Under Process</option>
+                  <option>Dispatch</option>
+                </select>
+              </div>
+            </div>
+            
+            <div className="d-flex justify-content-end mt-4">
+              <button 
+                type="button" 
+                className="btn btn-light mr-3 px-4" 
+                onClick={() => { setName(''); setPassport(''); setSelectedDate(null); setApplicationDate(null); setStatus('Under Process'); setSubmitAttempted(false); }}
+                style={{ height: '45px', fontFamily: "'Roboto', sans-serif" }}
+              >
+                <i className="fas fa-undo mr-2"></i>
+                Reset
+              </button>
+              <button 
+                type="submit"
+                className="btn btn-primary px-4" 
+                style={{ height: '45px', fontFamily: "'Roboto', sans-serif" }}
+              >
+                <i className="fas fa-save mr-2"></i>
+                Create Application
+              </button>
+            </div>
+          </form>
         </div>
       </div>
 
-      {/* Search and Records Section */}
-      <div className="row">
-        <div className="col-12">
-          <div className="card border-0 shadow-sm">
-            <div className="card-header bg-light border-0">
-              <div className="row align-items-center">
-                <div className="col-md-6">
-                  <h5 className="mb-0 text-dark" style={robotoStyle}>
-                    <i className="fas fa-search text-primary mr-2"></i>
-                    Search & Filter
-                  </h5>
-                </div>
-                <div className="col-md-6">
-                  <div className="input-group">
-                    <div className="input-group-prepend">
-                      <span className="input-group-text bg-white border-0">
-                        <i className="fas fa-search text-muted"></i>
-                      </span>
-                    </div>
-                    <input
-                      type="text"
-                      className="form-control border-0 bg-white"
-                      placeholder="Search by name, passport, or tracking ID..."
-                      value={searchTerm}
-                      onChange={handleSearchChange}
-                      style={{ height: '45px', ...robotoStyle }}
-                    />
+        {/* Applications Table */}
+        <div className="card border-0 shadow-lg" style={{ borderRadius: '20px' }}>
+          <div className="card-header border-0 text-white" style={{
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            borderRadius: '20px 20px 0 0'
+          }}>
+            <div className="row align-items-center">
+              <div className="col-md-6">
+                <div className="d-flex align-items-center">
+                  <div className="me-3" style={{
+                    width: '40px',
+                    height: '40px',
+                    background: 'rgba(255, 255, 255, 0.2)',
+                    borderRadius: '50%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}>
+                    <i className="fas fa-list"></i>
+                  </div>
+                  <div>
+                    <h5 className="mb-0 fw-bold" style={{ fontSize: '1.1rem' }}>
+                      Applications
+                    </h5>
+                    <small className="opacity-75" style={{ fontSize: '0.8rem' }}>{filtered.length} total applications</small>
                   </div>
                 </div>
               </div>
-            </div>
-            <div className="card-body p-0">
-              <div className="d-flex justify-content-between align-items-center p-3 bg-light border-bottom">
-                <div>
-                  <h6 className="mb-0 text-dark" style={robotoStyle}>
-                    <i className="fas fa-list text-primary mr-2"></i>
-                    Applications
-                  </h6>
-                   <small className="text-muted" style={robotoStyle}>
-                     Showing {filtered.length} of {useApiData ? apiData.length : rows.length} records
-                     {searchTerm && ` (filtered by "${searchTerm}")`}
-                     {useApiData && ' - API Data'}
-                   </small>
-                 </div>
-                 <span className={`badge badge-pill px-3 py-2 ${useApiData ? 'badge-info' : 'badge-primary'}`} style={robotoStyle}>
-                   <i className={`fas ${useApiData ? 'fa-cloud' : 'fa-database'} mr-1`}></i>
-                   {useApiData ? apiData.length : rows.length} Total
-                 </span>
+              <div className="col-md-6">
+                <div className="input-group">
+                  <div className="input-group-prepend">
+                    <span className="input-group-text bg-white border-0" style={{ borderRadius: '15px 0 0 15px' }}>
+                      <i className="fas fa-search text-muted"></i>
+                    </span>
+                  </div>
+                  <input
+                    type="text"
+                    className="form-control border-0 bg-white"
+                    placeholder="Search by name, passport, or tracking ID..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    style={{
+                      fontFamily: "'Roboto', sans-serif",
+                      borderRadius: '0 15px 15px 0',
+                      padding: '10px 12px',
+                      fontSize: '0.9rem'
+                    }}
+                  />
+                </div>
               </div>
+            </div>
+          </div>
+          <div className="card-body p-0">
+            {filtered.length === 0 ? (
+              <div className="text-center p-5 text-muted">
+                <div style={{
+                  width: '80px',
+                  height: '80px',
+                  background: 'linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)',
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  margin: '0 auto 20px',
+                  boxShadow: '0 4px 15px rgba(0,0,0,0.1)'
+                }}>
+                  <i className="fas fa-inbox fa-2x text-muted"></i>
+                </div>
+                <h5 className="fw-bold mb-2">No Applications Found</h5>
+                <p className="mb-0">Start by adding your first application above</p>
+              </div>
+            ) : (
               <div className="table-responsive">
                 <table className="table table-hover mb-0">
-                  <thead className="thead-light">
+                  <thead style={{
+                    background: 'linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)'
+                  }}>
                     <tr>
-                      <th className="border-0" style={robotoStyle}>
-                        <i className="fas fa-hashtag text-muted mr-1"></i>
-                        #
+                      <th className="border-0 fw-bold text-dark py-4" style={{
+                        fontFamily: "'Roboto', sans-serif",
+                        fontSize: '0.8rem',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                      }}>
+                        <i className="fas fa-user me-2 text-primary"></i>Name
                       </th>
-                      <th className="border-0" style={robotoStyle}>
-                        <i className="fas fa-user text-muted mr-1"></i>
-                        Name
+                      <th className="border-0 fw-bold text-dark py-4" style={{
+                        fontFamily: "'Roboto', sans-serif",
+                        fontSize: '0.8rem',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                      }}>
+                        <i className="fas fa-id-card me-2 text-primary"></i>Passport
                       </th>
-                      <th className="border-0" style={robotoStyle}>
-                        <i className="fas fa-passport text-muted mr-1"></i>
-                        Passport
+                      <th className="border-0 fw-bold text-dark py-4" style={{
+                        fontFamily: "'Roboto', sans-serif",
+                        fontSize: '0.8rem',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                      }}>
+                        <i className="fas fa-barcode me-2 text-primary"></i>Tracking ID
                       </th>
-                      <th className="border-0" style={robotoStyle}>
-                        <i className="fas fa-id-card text-muted mr-1"></i>
-                        Tracking ID
+                      <th className="border-0 fw-bold text-dark py-4" style={{
+                        fontFamily: "'Roboto', sans-serif",
+                        fontSize: '0.8rem',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                      }}>
+                        <i className="fas fa-birthday-cake me-2 text-primary"></i>DOB
                       </th>
-                      <th className="border-0" style={robotoStyle}>
-                        <i className="fas fa-calendar text-muted mr-1"></i>
-                        DOB
+                      <th className="border-0 fw-bold text-dark py-4" style={{
+                        fontFamily: "'Roboto', sans-serif",
+                        fontSize: '0.8rem',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                      }}>
+                        <i className="fas fa-calendar me-2 text-primary"></i>Date
                       </th>
-                      <th className="border-0" style={robotoStyle}>
-                        <i className="fas fa-calendar-check text-muted mr-1"></i>
-                         Date
+                      <th className="border-0 fw-bold text-dark py-4" style={{
+                        fontFamily: "'Roboto', sans-serif",
+                        fontSize: '0.8rem',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                      }}>
+                        <i className="fas fa-flag me-2 text-primary"></i>Status
                       </th>
-                      <th className="border-0" style={robotoStyle}>
-                        <i className="fas fa-tasks text-muted mr-1"></i>
-                        Status
-                      </th>
-                      <th className="border-0" style={robotoStyle}>
-                        <i className="fas fa-clock text-muted mr-1"></i>
-                        Created
-                      </th>
-                      <th className="border-0 text-center" style={robotoStyle}>
-                        <i className="fas fa-cog text-muted mr-1"></i>
-                        Actions
+                      <th className="border-0 fw-bold text-dark py-4" style={{
+                        fontFamily: "'Roboto', sans-serif",
+                        fontSize: '0.8rem',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                      }}>
+                        <i className="fas fa-clock me-2 text-primary"></i>Created
                       </th>
                     </tr>
                   </thead>
                   <tbody>
-                    {currentRecords.map((r, i) => (
-                      <tr key={r.trackingId} className="border-bottom">
-                        <td className="text-muted font-weight-bold" style={robotoStyle}>{startIndex + i + 1}</td>
-                        <td>
+                    {currentRecords.map((row, index) => (
+                      <tr key={row.id || index} style={{
+                        transition: 'all 0.3s ease',
+                        borderBottom: '1px solid #f8f9fa'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)';
+                        e.currentTarget.style.transform = 'translateY(-1px)';
+                        e.currentTarget.style.boxShadow = '0 4px 15px rgba(0,0,0,0.1)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'transparent';
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        e.currentTarget.style.boxShadow = 'none';
+                      }}>
+                        <td className="py-2" style={{
+                          fontFamily: "'Roboto', sans-serif",
+                          fontWeight: '500',
+                          fontSize: '0.9rem'
+                        }}>
                           <div className="d-flex align-items-center">
-                           
-                            <span className="font-weight-bold" style={robotoStyle}>{r.name}</span>
+                            <div className="me-2" style={{
+                              width: '35px',
+                              height: '35px',
+                              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                              borderRadius: '50%',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              color: 'white',
+                              fontSize: '0.75rem',
+                              marginRight: '10px',
+                              fontWeight: 'bold'
+                            }}>
+                              {row.name ? row.name.charAt(0).toUpperCase() : 'U'}
+                            </div>
+                            <span className="fw-semibold">{row.name}</span>
                           </div>
                         </td>
-                        <td>
-                          <code className="bg-light px-2 py-1 rounded" style={robotoStyle}>{r.passport}</code>
-                        </td>
-                        <td>
-                          <code className="bg-light px-2 py-1 rounded" style={robotoStyle}>{r.trackingId}</code>
-                        </td>
-                        <td className="text-muted" style={robotoStyle}>{r.dob}</td>
-                        <td className="text-muted" style={robotoStyle}>{r.applicationDate || '-'}</td>
-                        <td>
-                          <span className={`badge badge-pill px-3 py-2 ${r.status === 'Dispatch' ? 'badge-success' : 'badge-info'}`} style={robotoStyle}>
-                            <i className={`fas ${r.status === 'Dispatch' ? 'fa-truck' : 'fa-clock'} mr-1`}></i>
-                            {r.status}
+                        <td className="py-2" style={{
+                          fontFamily: "'Roboto', sans-serif",
+                          fontWeight: '500',
+                          fontSize: '0.9rem'
+                        }}>
+                          <span className="badge bg-light text-dark px-3 py-2 fw-bold" style={{
+                            fontSize: '0.75rem',
+                            borderRadius: '10px'
+                          }}>
+                            {row.passport}
                           </span>
                         </td>
-                        <td className="text-muted small" style={robotoStyle}>{new Date(r.createdAt).toLocaleString()}</td>
-                         <td className="text-center">
-                           <button 
-                             className="btn btn-sm btn-outline-danger" 
-                             onClick={() => handleDelete(r)}
-                             title="Delete record"
-                             style={{ 
-                               width: '32px', 
-                               height: '32px', 
-                               padding: '0',
-                               display: 'flex',
-                               alignItems: 'center',
-                               justifyContent: 'center',
-                               borderRadius: '6px'
-                             }}
-                           >
-                             <FaTrash size={12} />
-                           </button>
-                         </td>
-                      </tr>
-                    ))}
-                    {currentRecords.length === 0 && (
-                      <tr>
-                        <td colSpan="9" className="text-center py-5">
-                          <div className="text-muted">
-                            <i className="fas fa-inbox fa-3x mb-3"></i>
-                            <h5 style={robotoStyle}>{searchTerm ? 'No records found' : 'No applications yet'}</h5>
-                            <p className="mb-0" style={robotoStyle}>
-                              {searchTerm ? 'Try adjusting your search terms' : 'Create your first application above'}
-                            </p>
-                          </div>
+                        <td className="py-2" style={{
+                          fontFamily: "'Roboto', sans-serif"
+                        }}>
+                          <span className="badge bg-primary text-white px-3 py-2 fw-bold" style={{
+                            fontSize: '0.75rem',
+                            borderRadius: '10px',
+                            letterSpacing: '0.5px'
+                          }}>
+                            <i className="fas fa-barcode me-1"></i>
+                            {row.trackingId}
+                          </span>
+                        </td>
+                        <td className="py-2" style={{
+                          fontFamily: "'Roboto', sans-serif",
+                          fontWeight: '500',
+                          fontSize: '0.9rem'
+                        }}>
+                          <i className="fas fa-calendar-alt me-2 text-muted"></i>
+                          {row.dob}
+                        </td>
+                        <td className="py-2" style={{
+                          fontFamily: "'Roboto', sans-serif",
+                          fontWeight: '500',
+                          fontSize: '0.9rem'
+                        }}>
+                          <i className="fas fa-calendar me-2 text-muted"></i>
+                          {row.applicationDate}
+                        </td>
+                        <td className="py-3">
+                          <span className={`badge px-3 py-2 rounded-pill fw-bold ${
+                            row.status === 'Under Process' ? 'bg-warning text-dark' :
+                            row.status === 'Dispatch' ? 'bg-info text-white' :
+                            row.status === 'Approved' ? 'bg-success text-white' :
+                            'bg-danger text-white'
+                          }`} style={{
+                            fontSize: '0.75rem',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.5px'
+                          }}>
+                            <i className={`fas ${
+                              row.status === 'Under Process' ? 'fa-clock' :
+                              row.status === 'Dispatch' ? 'fa-truck' :
+                              row.status === 'Approved' ? 'fa-check-circle' :
+                              'fa-times-circle'
+                            } me-1`}></i>
+                            {row.status}
+                          </span>
+                        </td>
+                        <td className="py-2" style={{
+                          fontFamily: "'Roboto', sans-serif",
+                          fontWeight: '500',
+                          fontSize: '0.9rem',
+                          color: '#6c757d'
+                        }}>
+                          <i className="fas fa-clock me-2"></i>
+                          {new Date(row.created).toLocaleDateString()}
                         </td>
                       </tr>
-                    )}
+                    ))}
                   </tbody>
-                </table>
+              </table>
+            </div>
+          )}
+        </div>
+          {totalPages > 1 && (
+            <div className="card-footer border-0" style={{
+              background: 'linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)',
+              borderRadius: '0 0 20px 20px'
+            }}>
+              <div className="d-flex justify-content-between align-items-center">
+                <div className="d-flex align-items-center">
+                  <i className="fas fa-info-circle me-2 text-primary"></i>
+                  <small className="text-muted fw-semibold" style={{fontFamily: "'Roboto', sans-serif", fontSize: '0.8rem'}}>
+                    Showing {startIndex + 1} to {Math.min(endIndex, filtered.length)} of {filtered.length} applications
+                  </small>
+                </div>
+                <nav>
+                  <ul className="pagination pagination-sm mb-0">
+                    <li className={`page-item ${currentPage === 1 ? 'disabled' : ''}`}>
+                      <button 
+                        className="page-link border-0 fw-bold" 
+                        onClick={() => setCurrentPage(currentPage - 1)}
+                        disabled={currentPage === 1}
+                        style={{
+                          borderRadius: '10px',
+                          margin: '0 2px',
+                          background: currentPage === 1 ? '#e9ecef' : '#fff',
+                          color: currentPage === 1 ? '#6c757d' : '#667eea',
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                          transition: 'all 0.3s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (currentPage !== 1) {
+                            e.target.style.transform = 'translateY(-2px)';
+                            e.target.style.boxShadow = '0 4px 15px rgba(102, 126, 234, 0.3)';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          e.target.style.transform = 'translateY(0)';
+                          e.target.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
+                        }}
+                      >
+                        <i className="fas fa-chevron-left me-1"></i>Previous
+                      </button>
+                    </li>
+                    {[...Array(totalPages)].map((_, i) => (
+                      <li key={i} className={`page-item ${currentPage === i + 1 ? 'active' : ''}`}>
+                        <button 
+                          className="page-link border-0 fw-bold" 
+                          onClick={() => setCurrentPage(i + 1)}
+                          style={{
+                            borderRadius: '10px',
+                            margin: '0 2px',
+                            background: currentPage === i + 1 ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : '#fff',
+                            color: currentPage === i + 1 ? '#fff' : '#667eea',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                            transition: 'all 0.3s ease'
+                          }}
+                          onMouseEnter={(e) => {
+                            if (currentPage !== i + 1) {
+                              e.target.style.transform = 'translateY(-2px)';
+                              e.target.style.boxShadow = '0 4px 15px rgba(102, 126, 234, 0.3)';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            e.target.style.transform = 'translateY(0)';
+                            e.target.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
+                          }}
+                        >
+                          {i + 1}
+                        </button>
+                      </li>
+                    ))}
+                    <li className={`page-item ${currentPage === totalPages ? 'disabled' : ''}`}>
+                      <button 
+                        className="page-link border-0 fw-bold" 
+                        onClick={() => setCurrentPage(currentPage + 1)}
+                        disabled={currentPage === totalPages}
+                        style={{
+                          borderRadius: '10px',
+                          margin: '0 2px',
+                          background: currentPage === totalPages ? '#e9ecef' : '#fff',
+                          color: currentPage === totalPages ? '#6c757d' : '#667eea',
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                          transition: 'all 0.3s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (currentPage !== totalPages) {
+                            e.target.style.transform = 'translateY(-2px)';
+                            e.target.style.boxShadow = '0 4px 15px rgba(102, 126, 234, 0.3)';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          e.target.style.transform = 'translateY(0)';
+                          e.target.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
+                        }}
+                      >
+                        Next<i className="fas fa-chevron-right ms-1"></i>
+                      </button>
+                    </li>
+                  </ul>
+                </nav>
               </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
-
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="row mt-4">
-          <div className="col-12">
-            <div className="card border-0 shadow-sm">
-              <div className="card-body">
-                <div className="d-flex justify-content-between align-items-center">
-                  <div className="text-muted" style={robotoStyle}>
-                    <i className="fas fa-info-circle mr-1"></i>
-                    Page {currentPage} of {totalPages} ({filtered.length} records)
-                  </div>
-                  <nav>
-                    <ul className="pagination pagination-sm mb-0">
-                      <li className={`page-item ${currentPage === 1 ? 'disabled' : ''}`}>
-                        <button 
-                          className="page-link border-0" 
-                          onClick={() => handlePageChange(currentPage - 1)}
-                          disabled={currentPage === 1}
-                          style={{ borderRadius: '20px', margin: '0 2px', ...robotoStyle }}
-                        >
-                          <i className="fas fa-chevron-left"></i>
-                        </button>
-                      </li>
-                      
-                      {/* Show page numbers */}
-                      {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                        let pageNum;
-                        if (totalPages <= 5) {
-                          pageNum = i + 1;
-                        } else if (currentPage <= 3) {
-                          pageNum = i + 1;
-                        } else if (currentPage >= totalPages - 2) {
-                          pageNum = totalPages - 4 + i;
-                        } else {
-                          pageNum = currentPage - 2 + i;
-                        }
-                        
-                        return (
-                          <li key={pageNum} className={`page-item ${currentPage === pageNum ? 'active' : ''}`}>
-                            <button 
-                              className="page-link border-0" 
-                              onClick={() => handlePageChange(pageNum)}
-                              style={{ 
-                                borderRadius: '20px', 
-                                margin: '0 2px',
-                                backgroundColor: currentPage === pageNum ? '#007bff' : 'transparent',
-                                color: currentPage === pageNum ? 'white' : '#6c757d',
-                                ...robotoStyle
-                              }}
-                            >
-                              {pageNum}
-                            </button>
-                          </li>
-                        );
-                      })}
-                      
-                      <li className={`page-item ${currentPage === totalPages ? 'disabled' : ''}`}>
-                        <button 
-                          className="page-link border-0" 
-                          onClick={() => handlePageChange(currentPage + 1)}
-                          disabled={currentPage === totalPages}
-                          style={{ borderRadius: '20px', margin: '0 2px', ...robotoStyle }}
-                        >
-                          <i className="fas fa-chevron-right"></i>
-                        </button>
-                      </li>
-                    </ul>
-                  </nav>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
 export default AdminPage;
-
-

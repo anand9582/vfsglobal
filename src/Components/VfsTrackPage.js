@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { collection, getDocs, query, where, doc, updateDoc, increment } from 'firebase/firestore';
+import { db } from '../firebase/firebaseConfig';
 
 function VfsTrackPage() {
   const [trackingId, setTrackingId] = useState('');
@@ -115,6 +117,59 @@ function VfsTrackPage() {
     drawCaptcha(next);
   };
 
+  // Search in Firebase with access tracking
+  const searchInFirebase = async (searchTrackingId, searchDob) => {
+    try {
+      const q = query(
+        collection(db, 'submissions'),
+        where('trackingId', '==', searchTrackingId)
+      );
+      const querySnapshot = await getDocs(q);
+      
+      if (!querySnapshot.empty) {
+        const docRef = querySnapshot.docs[0];
+        const data = docRef.data();
+        
+        // Check DOB match if provided
+        if (searchDob && data.dob && data.dob !== searchDob) {
+          return null; // DOB doesn't match
+        }
+        
+        // Check if application is still valid (not expired)
+        const now = new Date();
+        const expiresAt = new Date(data.expiresAt);
+        if (now > expiresAt) {
+          console.log('Application has expired');
+          return null; // Application expired
+        }
+        
+        // Update access tracking
+        try {
+          await updateDoc(doc(db, 'submissions', docRef.id), {
+            lastAccessed: new Date().toISOString(),
+            accessCount: increment(1)
+          });
+        } catch (updateError) {
+          console.log('Could not update access tracking:', updateError);
+          // Continue even if update fails
+        }
+        
+        return {
+          id: docRef.id,
+          ...data,
+          foundIn: 'Firebase'
+        };
+      }
+      return null;
+    } catch (error) {
+      console.error('Firebase search error:', error);
+      if (error.code === 'permission-denied') {
+        console.log('Firebase permission denied. Please update Firestore security rules.');
+      }
+      return null;
+    }
+  };
+
   const formatDate = (date) => {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -188,84 +243,91 @@ function VfsTrackPage() {
       refreshCaptcha();
       return;
     }
-    // First try API checkStatus, then fallback to local storage
+    // First try Firebase search
     try {
-      const url = `http://192.168.11.107:8081/user/checkStatus?trackId=${encodeURIComponent(trackingId)}&dob=${encodeURIComponent(dob)}`;
-      const resp = await fetch(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
-      if (resp.ok) {
-        let payload = null;
-        try { payload = await resp.json(); } catch (_) { payload = null; }
+      console.log('Searching for application with Tracking ID:', trackingId, 'DOB:', dob);
+      const foundApplication = await searchInFirebase(trackingId, dob);
+      console.log('Found application:', foundApplication);
+      
+      if (foundApplication) {
+        const apiStatusRaw = foundApplication.status || '';
+        const apiTrackingId = foundApplication.trackingId || trackingId;
+        const apiDate = foundApplication.applicationDate || ''; // This is the application date from admin form
+        const userName = foundApplication.name || '';
 
-        // Support multiple response shapes
-        let apiStatusRaw = '';
-        let apiTrackingId = trackingId;
-        let apiDate = '';
+        console.log('Found application details:', {
+          name: userName,
+          status: apiStatusRaw,
+          trackingId: apiTrackingId,
+          applicationDate: apiDate
+        });
 
-        if (payload && Array.isArray(payload.data)) {
-          // Example: { status: true, data: ["UP", "20250918INCDTKT90001", "name", "2025-10-01"] }
-          apiStatusRaw = String(payload.data[0] || '').toUpperCase();
-          apiTrackingId = payload.data[1] || trackingId;
-          apiDate = payload.data[3] || ''; // Get the date from index 3
-        } else if (payload && typeof payload === 'object') {
-          apiStatusRaw = (payload.status || (payload.data && payload.data.status) || '').toString().toUpperCase();
-          apiTrackingId = (payload.trackingId || (payload.data && payload.data.trackingId) || trackingId);
-        }
-
-        if (apiStatusRaw === 'UP') {
-          // Show exact style message using API date or entered DOB date
-          let processDate;
-          if (apiDate) {
-            // Convert API date from YYYY-MM-DD to YYYY/MM/DD format
-            processDate = apiDate.replace(/-/g, '/');
-          } else {
-            // Fallback to entered DOB date
-            processDate = (dob || '').replace(/-/g, '/');
+        // Get status icon and color
+        const getStatusInfo = (status) => {
+          switch (status.toUpperCase()) {
+            case 'UNDER PROCESS':
+            case 'UP':
+              return { icon: 'fa-clock', color: 'warning', text: 'Under Process' };
+            case 'DISPATCH':
+            case 'DP':
+              return { icon: 'fa-truck', color: 'info', text: 'Dispatch' };
+            case 'APPROVED':
+              return { icon: 'fa-check-circle', color: 'success', text: 'Approved' };
+            case 'REJECTED':
+              return { icon: 'fa-times-circle', color: 'danger', text: 'Rejected' };
+            default:
+              return { icon: 'fa-clock', color: 'warning', text: 'Under Process' };
           }
-          setResultMsg(`Your application, tracking ID No.${apiTrackingId} has been received and is under process at the IRCC Office on ${processDate}`);
-          return;
-        }
+        };
 
-        if (apiStatusRaw === 'DP') {
-          // Show dispatch message with API date in YYYY/MM/DD format
-          let dispatchDate;
-          if (apiDate) {
-            // Convert API date from YYYY-MM-DD to YYYY/MM/DD format
-            dispatchDate = apiDate.replace(/-/g, '/');
-          } else {
-            // Fallback to current date if no API date
-            const currentDate = new Date();
-            dispatchDate = `${currentDate.getFullYear()}/${String(currentDate.getMonth() + 1).padStart(2, '0')}/${String(currentDate.getDate()).padStart(2, '0')}`;
-          }
-          setResultMsg(`Your application, tracking ID No.${apiTrackingId} has been received and is dispatch at the IRCC Office on ${dispatchDate}`);
-          return;
-        }
-      }
-    } catch (_) {
-      // ignore and fallback
-    }
-
-    // Fallback: lookup in localStorage for admin-saved status
-    try {
-      const raw = localStorage.getItem('vfs_applications');
-      const list = raw ? JSON.parse(raw) : [];
-      const found = Array.isArray(list) ? list.find(r => r.trackingId === trackingId && r.dob === dob) : undefined;
-      if (found) {
-        // Handle dispatch status with proper message format
-        if (found.status && found.status.toUpperCase() === 'DP') {
-          const currentDate = new Date();
-          const dispatchDate = `${currentDate.getFullYear()}/${String(currentDate.getMonth() + 1).padStart(2, '0')}/${String(currentDate.getDate()).padStart(2, '0')}`;
-          setResultMsg(`Your application, tracking ID No.${found.trackingId} has been received and is dispatch at the IRCC Office on ${dispatchDate}`);
+        const statusInfo = getStatusInfo(apiStatusRaw);
+        let displayDate;
+        if (apiDate) {
+          displayDate = apiDate.replace(/-/g, '/');
         } else {
-          setResultMsg(`Your application, Tracking ID No. ${found.trackingId} has status: ${found.status}.`);
+          displayDate = (dob || '').replace(/-/g, '/');
         }
-      } else {
-        const todayStr = formatDate(new Date());
-        setResultMsg(`Your application, Tracking ID No. has been received and is under process at the VAC. (Date: ${todayStr})`);
+
+        // Create styled status message
+        setResultMsg(`
+          <div class="alert alert-${statusInfo.color} border-0 shadow-sm" style="border-left: 4px solid var(--bs-${statusInfo.color}) !important;">
+            <div class="d-flex align-items-center mb-2">
+              <i class="fas ${statusInfo.icon} fa-2x me-3 text-${statusInfo.color}"></i>
+              <div>
+                <h5 class="alert-heading mb-1 fw-bold">Application Status</h5>
+                <p class="mb-0 text-muted">Tracking ID: <strong class="text-primary">${apiTrackingId}</strong></p>
+              </div>
+            </div>
+            <hr class="my-3">
+            <div class="row">
+              <div class="col-md-6">
+                <p class="mb-2"><strong>Status:</strong> 
+                  <span class="badge bg-${statusInfo.color} text-white px-3 py-2 rounded-pill ms-2">
+                    <i class="fas ${statusInfo.icon} me-1"></i>
+                    ${statusInfo.text}
+                  </span>
+                </p>
+              </div>
+              <div class="col-md-6">
+                <p class="mb-2"><strong>Application Date:</strong> <span class="text-primary fw-bold">${displayDate}</span></p>
+              </div>
+            </div>
+            <div class="mt-3 p-3 bg-light rounded">
+              <p class="mb-0 text-center fw-bold">
+                <i class="fas fa-building me-2"></i>
+                Your application has been received and is ${statusInfo.text.toLowerCase()} at the IRCC Office on ${displayDate}
+              </p>
+            </div>
+          </div>
+        `);
+        return;
       }
-    } catch {
-      const todayStr = formatDate(new Date());
-      setResultMsg(`Your application, Tracking ID No. has been received and is under process at the VAC. (Date: ${todayStr})`);
+    } catch (error) {
+      console.error('Firebase search error:', error);
     }
+
+    // Fallback: No application found
+    setResultMsg('No application found with the provided tracking ID and date of birth.');
   };
 
   return (
@@ -273,7 +335,10 @@ function VfsTrackPage() {
       <div style={{ backgroundColor: '#0b355a', color: '#fff' }}>
         <div className="container py-3 d-flex align-items-center justify-content-between">
           <div className="d-flex align-items-center">
-            <img className='w-5 h-4' src={`${process.env.PUBLIC_URL}/vfs-logo2.png`} alt="logo"  />
+            <img className='w-5 h-4 me-3' src={`${process.env.PUBLIC_URL}/vfs-logo2.png`} alt="logo"  />
+            <h1 className="mb-0 text-white fw-bold" style={{ fontSize: '1.8rem', letterSpacing: '2px' }}>
+              VFS GLOBAL
+            </h1>
           </div>
            <div className="d-none d-md-block" style={{ fontFamily: '"Helvetica Neue", Helvetica, Arial, sans-serif', fontSize: '10pt' }}>
              <span>Apply for Visa to Canada </span>
@@ -528,8 +593,8 @@ function VfsTrackPage() {
               </div>
             </form>
             {resultMsg && (
-              <div className="mt-3" style={{ color: '#0b3ca1', fontSize: 14, fontWeight: 600 }}>
-                {resultMsg}
+              <div className="mt-3">
+                <div dangerouslySetInnerHTML={{ __html: resultMsg }} />
               </div>
             )}
             <div className="py-5"></div>
