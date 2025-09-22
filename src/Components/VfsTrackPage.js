@@ -303,25 +303,6 @@ function VfsTrackPage() {
           applicationDate: apiDate
         });
 
-        // Get status icon and color
-        const getStatusInfo = (status) => {
-          switch (status.toUpperCase()) {
-            case 'UNDER PROCESS':
-            case 'UP':
-              return { icon: 'fa-clock', color: 'warning', text: 'Under Process' };
-            case 'DISPATCH':
-            case 'DP':
-              return { icon: 'fa-truck', color: 'info', text: 'Dispatch' };
-            case 'APPROVED':
-              return { icon: 'fa-check-circle', color: 'success', text: 'Approved' };
-            case 'REJECTED':
-              return { icon: 'fa-times-circle', color: 'danger', text: 'Rejected' };
-            default:
-              return { icon: 'fa-clock', color: 'warning', text: 'Under Process' };
-          }
-        };
-
-        const statusInfo = getStatusInfo(apiStatusRaw);
         let displayDate;
         if (apiDate) {
           displayDate = apiDate.replace(/-/g, '/');
@@ -329,46 +310,21 @@ function VfsTrackPage() {
           displayDate = (dob || '').replace(/-/g, '/');
         }
 
-        // Create styled status message
-        setResultMsg(`
-          <div class="alert alert-${statusInfo.color} border-0 shadow-sm" style="border-left: 4px solid var(--bs-${statusInfo.color}) !important;">
-            <div class="d-flex align-items-center mb-2">
-              <i class="fas ${statusInfo.icon} fa-2x me-3 text-${statusInfo.color}"></i>
-              <div>
-                <h5 class="alert-heading mb-1 fw-bold">Application Status</h5>
-                <p class="mb-0 text-muted">Tracking ID: <strong class="text-primary">${apiTrackingId}</strong></p>
-              </div>
-            </div>
-            <hr class="my-3">
-            <div class="row">
-              <div class="col-md-6">
-                <p class="mb-2"><strong>Status:</strong> 
-                  <span class="badge bg-${statusInfo.color} text-white px-3 py-2 rounded-pill ms-2">
-                    <i class="fas ${statusInfo.icon} me-1"></i>
-                    ${statusInfo.text}
-                  </span>
-                </p>
-              </div>
-              <div class="col-md-6">
-                <p class="mb-2"><strong>Application Date:</strong> <span class="text-primary fw-bold">${displayDate}</span></p>
-              </div>
-            </div>
-            <div class="mt-3 p-3 bg-light rounded">
-              <p class="mb-0 text-center fw-bold">
-                <i class="fas fa-building me-2"></i>
-                Your application has been received and is ${statusInfo.text.toLowerCase()} at the IRCC Office on ${displayDate}
-              </p>
-            </div>
-          </div>
-        `);
+         // Create simple status message like in the image
+         if (apiStatusRaw.toUpperCase() === 'DISPATCH' || apiStatusRaw.toUpperCase() === 'DP') {
+           setResultMsg(`Your application, tracking ID No.${apiTrackingId} has been received and is dispatch at the IRCC Office on ${displayDate}`);
+         } else {
+           setResultMsg(`Your application, tracking ID No.${apiTrackingId} has been received and is under process at the IRCC Office on ${displayDate}`);
+         }
         return;
       }
     } catch (error) {
       console.error('Firebase search error:', error);
     }
 
-    // Fallback: No application found
-    setResultMsg('No application found with the provided tracking ID and date of birth.');
+     // Fallback: No application found
+     const todayStr = formatDate(new Date()).replace(/-/g, '/');
+     setResultMsg(`Your application, tracking ID No.${trackingId} has been received and is under process at the VAC. (Date: ${todayStr})`);
   };
 
   return (
@@ -427,15 +383,15 @@ function VfsTrackPage() {
                 <label className="mb-2 mb-lg-0" style={{ fontWeight: 700, width: 210 }}>
                   Tracking ID No<span className="text-danger">*</span>
                 </label>
-                <input
-                  type="text"
-                  className="form-control tracking-input"
-                  style={{  background: '#fff', border: touched.trackingId && !trackingId ? '1px solid #dc3545' : undefined }}
-                  placeholder="Tracking ID No"
-                  value={trackingId}
-                  onChange={(e) => setTrackingId(e.target.value)}
-                  onBlur={() => setTouched(prev => ({ ...prev, trackingId: true }))}
-                />
+                   <input
+                     type="text"
+                     className="form-control tracking-input"
+                     style={{  background: '#fff', border: touched.trackingId && !trackingId ? '1px solid #dc3545' : undefined }}
+                     placeholder="Tracking ID No"
+                     value={trackingId}
+                     onChange={handleTrackingIdChange}
+                     onBlur={() => setTouched(prev => ({ ...prev, trackingId: true }))}
+                   />
               </div>
               {touched.trackingId && !trackingId && (
                 <div className="mb-2" style={{ color: '#dc3545', fontWeight: 700, marginLeft: 210 }}>Required</div>
@@ -634,11 +590,11 @@ function VfsTrackPage() {
               </div>
               </div>
             </form>
-            {resultMsg && (
-              <div className="mt-3">
-                <div dangerouslySetInnerHTML={{ __html: resultMsg }} />
-              </div>
-            )}
+             {resultMsg && (
+               <div className="mt-3" style={{ color: '#0b3ca1', fontSize: 14, fontWeight: 600,}}>
+                 {resultMsg}
+               </div>
+             )}
             <div className="py-5"></div>
             </div>
             <footer style={{ backgroundColor: '#0b355a', color: '#fff' }}>
