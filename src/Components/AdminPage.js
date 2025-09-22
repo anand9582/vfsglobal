@@ -759,7 +759,15 @@ function AdminPage() {
                         textTransform: 'uppercase',
                         letterSpacing: '0.5px'
                       }}>
-                        <i className="fas fa-user me-2 text-primary"></i>Name
+                        S.No
+                      </th>
+                      <th className="border-0 fw-bold text-dark py-4" style={{
+                        fontFamily: "'Roboto', sans-serif",
+                        fontSize: '0.8rem',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                      }}>
+                     Name
                       </th>
                       <th className="border-0 fw-bold text-dark py-4" style={{
                         fontFamily: "'Roboto', sans-serif",
@@ -840,22 +848,14 @@ function AdminPage() {
                           fontWeight: '500',
                           fontSize: '0.9rem'
                         }}>
+                          {startIndex + index + 1}
+                        </td>
+                        <td className="py-2" style={{
+                          fontFamily: "'Roboto', sans-serif",
+                          fontWeight: '500',
+                          fontSize: '0.9rem'
+                        }}>
                           <div className="d-flex align-items-center">
-                            <div className="me-2" style={{
-                              width: '35px',
-                              height: '35px',
-                              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                              borderRadius: '50%',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              color: 'white',
-                              fontSize: '0.75rem',
-                              marginRight: '10px',
-                              fontWeight: 'bold'
-                            }}>
-                              {row.name ? row.name.charAt(0).toUpperCase() : 'U'}
-                            </div>
                             <span className="fw-semibold">{row.name}</span>
                           </div>
                         </td>
