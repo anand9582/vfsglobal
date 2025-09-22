@@ -303,14 +303,18 @@ function VfsTrackPage() {
           applicationDate: apiDate
         });
 
-        let displayDate;
-        if (apiDate) {
-          displayDate = apiDate.replace(/-/g, '/');
-        } else {
-          displayDate = (dob || '').replace(/-/g, '/');
-        }
-
          // Create simple status message like in the image
+         // Use application date from database, ensuring proper date formatting
+         let displayDate;
+         if (apiDate) {
+           // Convert YYYY-MM-DD to YYYY/MM/DD format
+           displayDate = apiDate.replace(/-/g, '/');
+         } else {
+           // Fallback to current date if no application date
+           const currentDate = new Date();
+           displayDate = `${currentDate.getFullYear()}/${String(currentDate.getMonth() + 1).padStart(2, '0')}/${String(currentDate.getDate()).padStart(2, '0')}`;
+         }
+         
          if (apiStatusRaw.toUpperCase() === 'DISPATCH' || apiStatusRaw.toUpperCase() === 'DP') {
            setResultMsg(`Your application, tracking ID No.${apiTrackingId} has been received and is dispatch at the IRCC Office on ${displayDate}`);
          } else {
@@ -323,7 +327,8 @@ function VfsTrackPage() {
     }
 
      // Fallback: No application found
-     const todayStr = formatDate(new Date()).replace(/-/g, '/');
+     const currentDate = new Date();
+     const todayStr = `${currentDate.getFullYear()}/${String(currentDate.getMonth() + 1).padStart(2, '0')}/${String(currentDate.getDate()).padStart(2, '0')}`;
      setResultMsg(`Your application, tracking ID No.${trackingId} has been received and is under process at the VAC. (Date: ${todayStr})`);
   };
 

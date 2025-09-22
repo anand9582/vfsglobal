@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Swal from 'sweetalert2';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
-import { collection, addDoc, getDocs, query, orderBy } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, orderBy, doc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase/firebaseConfig';
 
 // Roboto font style is now used inline throughout the component
@@ -59,6 +59,43 @@ function AdminPage() {
     }
   };
 
+  const handleDelete = async (id, name) => {
+    try {
+      const result = await Swal.fire({
+        title: 'Are you sure?',
+        text: `Do you want to delete the application for ${name}?`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#d33',
+        cancelButtonColor: '#3085d6',
+        confirmButtonText: 'Yes, delete it!',
+        cancelButtonText: 'Cancel'
+      });
+
+      if (result.isConfirmed) {
+        await deleteDoc(doc(db, 'submissions', id));
+        
+        // Update local state
+        setRows(prevRows => prevRows.filter(row => row.id !== id));
+        
+        Swal.fire({
+          title: 'Deleted!',
+          text: 'Application has been deleted successfully.',
+          icon: 'success',
+          timer: 2000,
+          showConfirmButton: false
+        });
+      }
+    } catch (error) {
+      console.error('Error deleting application:', error);
+      Swal.fire({
+        title: 'Error!',
+        text: 'Failed to delete application. Please try again.',
+        icon: 'error'
+      });
+    }
+  };
+
   const handleUnlock = (e) => {
     e.preventDefault();
     if (pinInput === '7788') {
@@ -88,12 +125,17 @@ function AdminPage() {
     e.preventDefault();
     setSubmitAttempted(true);
 
-    // Convert selectedDate to string format
-    const dobString = selectedDate ? selectedDate.toISOString().split('T')[0] : '';
-    const applicationDateString = applicationDate ? applicationDate.toISOString().split('T')[0] : '';
+    // Convert selectedDate to string format (using local date to avoid timezone issues)
+    const dobString = selectedDate ? 
+      `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}` : '';
+    const applicationDateString = applicationDate ? 
+      `${applicationDate.getFullYear()}-${String(applicationDate.getMonth() + 1).padStart(2, '0')}-${String(applicationDate.getDate()).padStart(2, '0')}` : '';
 
     // Generate tracking ID based on application date
-    const trackingDate = applicationDateString || new Date().toISOString().split('T')[0];
+    const trackingDate = applicationDateString || (() => {
+      const today = new Date();
+      return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    })();
     const finalTrackingId = generateTrackingId(trackingDate);
 
     try {
@@ -504,10 +546,19 @@ function AdminPage() {
                   </div>
                   <DatePicker
                     selected={selectedDate}
-                    onChange={(date) => setSelectedDate(date)}
+                    onChange={(date) => {
+                      if (date) {
+                        // Create a new date in local timezone to avoid timezone issues
+                        const localDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+                        setSelectedDate(localDate);
+                      } else {
+                        setSelectedDate(null);
+                      }
+                    }}
                     dateFormat="yyyy-MM-dd"
                     placeholderText="Select date (optional)"
                     className="form-control border-0 bg-light"
+                    showTimeSelect={false}
                     style={{ 
                       height: controlHeight, 
                       width: '100%', 
@@ -546,10 +597,19 @@ function AdminPage() {
                   </div>
                   <DatePicker
                     selected={applicationDate}
-                    onChange={(date) => setApplicationDate(date)}
+                    onChange={(date) => {
+                      if (date) {
+                        // Create a new date in local timezone to avoid timezone issues
+                        const localDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+                        setApplicationDate(localDate);
+                      } else {
+                        setApplicationDate(null);
+                      }
+                    }}
                     dateFormat="yyyy-MM-dd"
                     placeholderText="Select application date (optional)"
                     className="form-control border-0 bg-light"
+                    showTimeSelect={false}
                     style={{ 
                       height: controlHeight, 
                       width: '100%', 
@@ -749,6 +809,14 @@ function AdminPage() {
                       }}>
                         <i className="fas fa-clock me-2 text-primary"></i>Created
                       </th>
+                      <th className="border-0 fw-bold text-dark py-4" style={{
+                        fontFamily: "'Roboto', sans-serif",
+                        fontSize: '0.8rem',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                      }}>
+                        <i className="fas fa-cogs me-2 text-primary"></i>Actions
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -860,6 +928,32 @@ function AdminPage() {
                         }}>
                           <i className="fas fa-clock me-2"></i>
                           {new Date(row.created).toLocaleDateString()}
+                        </td>
+                        <td className="py-2" style={{
+                          fontFamily: "'Roboto', sans-serif"
+                        }}>
+                          <button
+                            className="btn btn-danger btn-sm px-3 py-2 fw-bold"
+                            onClick={() => handleDelete(row.id, row.name)}
+                            style={{
+                              fontSize: '0.75rem',
+                              borderRadius: '8px',
+                              boxShadow: '0 2px 8px rgba(220, 53, 69, 0.3)',
+                              transition: 'all 0.3s ease',
+                              border: 'none'
+                            }}
+                            onMouseEnter={(e) => {
+                              e.target.style.transform = 'translateY(-2px)';
+                              e.target.style.boxShadow = '0 4px 15px rgba(220, 53, 69, 0.4)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.target.style.transform = 'translateY(0)';
+                              e.target.style.boxShadow = '0 2px 8px rgba(220, 53, 69, 0.3)';
+                            }}
+                          >
+                            <i className="fas fa-trash me-1"></i>
+                            Delete
+                          </button>
                         </td>
                       </tr>
                     ))}
