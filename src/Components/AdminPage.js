@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Swal from 'sweetalert2';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
-import { collection, addDoc, getDocs, query, orderBy, doc, deleteDoc } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, orderBy, doc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase/firebaseConfig';
 
 // Roboto font style is now used inline throughout the component
@@ -24,6 +24,8 @@ function AdminPage() {
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [syncStatus, setSyncStatus] = useState('');
   const controlHeight = 40;
+  const [editingDateRow, setEditingDateRow] = useState(null);
+  const [editingDateValue, setEditingDateValue] = useState('');
 
   // Load data from Firebase on component mount
   useEffect(() => {
@@ -93,6 +95,36 @@ function AdminPage() {
         text: 'Failed to delete application. Please try again.',
         icon: 'error'
       });
+    }
+  };
+
+  const startEditDate = (row) => {
+    setEditingDateRow(row);
+    setEditingDateValue(row.applicationDate || '');
+  };
+
+  const cancelEditDate = () => {
+    setEditingDateRow(null);
+    setEditingDateValue('');
+  };
+
+  const saveEditDate = async () => {
+    if (!editingDateRow) return;
+    const newDate = editingDateValue?.trim();
+    // basic YYYY-MM-DD validation
+    const isValid = /^\d{4}-\d{2}-\d{2}$/.test(newDate);
+    if (!isValid) {
+      Swal.fire({ title: 'Invalid date', text: 'Please use YYYY-MM-DD', icon: 'warning' });
+      return;
+    }
+    try {
+      await updateDoc(doc(db, 'submissions', editingDateRow.id), { applicationDate: newDate });
+      setRows(prev => prev.map(r => r.id === editingDateRow.id ? { ...r, applicationDate: newDate } : r));
+      cancelEditDate();
+      Swal.fire({ title: 'Updated', text: 'Application date updated', icon: 'success', timer: 1500, showConfirmButton: false });
+    } catch (e) {
+      console.error('Failed updating date', e);
+      Swal.fire({ title: 'Error', text: 'Could not update date', icon: 'error' });
     }
   };
 
@@ -896,8 +928,28 @@ function AdminPage() {
                           fontWeight: '500',
                           fontSize: '0.9rem'
                         }}>
-                          <i className="fas fa-calendar me-2 text-muted"></i>
-                          {row.applicationDate}
+                          {editingDateRow && editingDateRow.id === row.id ? (
+                            <div className="d-flex align-items-center" style={{ gap: '6px' }}>
+                              <input
+                                type="date"
+                                value={editingDateValue}
+                                onChange={(e) => setEditingDateValue(e.target.value)}
+                                className="form-control form-control-sm"
+                                style={{ maxWidth: '150px' }}
+                              />
+                              <button className="btn btn-success btn-sm" onClick={saveEditDate}>
+                                Save
+                              </button>
+                              <button className="btn btn-secondary btn-sm" onClick={cancelEditDate}>
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <i className="fas fa-calendar me-2 text-muted"></i>
+                              {row.applicationDate}
+                            </>
+                          )}
                         </td>
                         <td className="py-3">
                           <span className={`badge px-3 py-2 rounded-pill fw-bold ${
@@ -932,6 +984,7 @@ function AdminPage() {
                         <td className="py-2" style={{
                           fontFamily: "'Roboto', sans-serif"
                         }}>
+                          <div className="d-flex" style={{ gap: '8px' }}>
                           <button
                             className="btn btn-danger btn-sm px-3 py-2 fw-bold"
                             onClick={() => handleDelete(row.id, row.name)}
@@ -954,6 +1007,17 @@ function AdminPage() {
                             <i className="fas fa-trash me-1"></i>
                             Delete
                           </button>
+                          <button
+                            className="btn btn-outline-primary btn-sm px-3 py-2 fw-bold"
+                            onClick={() => startEditDate(row)}
+                            style={{
+                              fontSize: '0.75rem',
+                              borderRadius: '8px'
+                            }}
+                          >
+                            Change Date
+                          </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
