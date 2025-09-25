@@ -14,7 +14,7 @@ function App() {
     <>
       <Routes>
         <Route path="/" element={<VfsTrackPage />} />
-        <Route path="/admindami" element={<AdminPage />} />
+        <Route path="/admin" element={<AdminPage />} />
         <Route path="/report" element={<ReportPage />} />
         <Route path="/dataflow" element={<DataFlowTest />} />
         <Route path="/test" element={<TestGoogleSheets />} />
