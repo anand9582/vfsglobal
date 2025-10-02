@@ -130,7 +130,7 @@ function AdminPage() {
 
   const handleUnlock = (e) => {
     e.preventDefault();
-    if (pinInput === '7788') {
+    if (pinInput === '9090') {
       setUnlocked(true);
     } else {
       alert('Invalid PIN');
