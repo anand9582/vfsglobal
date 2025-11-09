@@ -13,12 +13,12 @@ function App() {
   return (
     <>
       <Routes>
-        {/* <Route path="/" element={<VfsTrackPage />} />
+        <Route path="/" element={<VfsTrackPage />} />
         <Route path="/admin" element={<AdminPage />} />
         <Route path="/report" element={<ReportPage />} />
         <Route path="/dataflow" element={<DataFlowTest />} />
         <Route path="/test" element={<TestGoogleSheets />} />
-        <Route path="/connection-test" element={<GoogleSheetsConnectionTest />} /> */}
+        <Route path="/connection-test" element={<GoogleSheetsConnectionTest />} />
         {/* <Route path="/debug" element={<GoogleSheetsTest />} /> */}
       </Routes>
     </>
